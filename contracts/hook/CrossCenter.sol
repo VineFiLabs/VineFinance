@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 import {IMessageTransmitter} from "../interfaces/cctp/IMessageTransmitter.sol";
 import {ITokenMessenger} from "../interfaces/cctp/ITokenMessenger.sol";
