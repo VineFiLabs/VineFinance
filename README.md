@@ -1,5 +1,4 @@
 # VineFinance
- This is Vine finance's public soldity code
  [![Solidity](https://img.shields.io/badge/Solidity-0.8.23-blue)](https://soliditylang.org/)
  [![Hardhat](https://img.shields.io/badge/Hardhat-2.22.17-yellow)](https://hardhat.org)
  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
