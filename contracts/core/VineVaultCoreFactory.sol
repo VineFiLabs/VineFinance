@@ -23,6 +23,7 @@ contract VineVaultCoreFactory {
         string memory tokenName, 
         string memory tokenSymbol
     ) external returns(address vineVaultCore){
+        require(msg.sender == govern, "Non govern");
         vineVaultCore = address(
             new VineVaultCore{
                 salt: keccak256(abi.encodePacked(thisId, block.timestamp, block.chainid))

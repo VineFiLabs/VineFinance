@@ -21,6 +21,7 @@ contract VineVaultFactory {
         uint32 thisDomain,
         uint256 thisId
     ) external returns(address vineVault){
+        require(msg.sender == govern, "Non govern");
         vineVault = address(
             new VineVault{
                 salt: keccak256(abi.encodePacked(thisId, block.timestamp, block.chainid))
