@@ -1,23 +1,27 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.23;
 import {IMessageTransmitter} from "../interfaces/cctp/IMessageTransmitter.sol";
 import {ITokenMessenger} from "../interfaces/cctp/ITokenMessenger.sol";
 import {IVineStruct} from "../interfaces/IVineStruct.sol";
-import {ICoreCrossCenter} from "../interfaces/ICoreCrossCenter.sol";
+import {ICoreCrossCenter} from "../interfaces/core/ICoreCrossCenter.sol";
 import {IGovernance} from "../interfaces/core/IGovernance.sol";
 import {IFactorySharer} from "../interfaces/IFactorySharer.sol";
 import {ISharer} from "../interfaces/ISharer.sol";
-import {IVineAaveV3LendMain} from "../interfaces/IVineAaveV3LendMain.sol";
+import {IVineAaveV3LendMain02} from "../interfaces/hook/aave/IVineAaveV3LendMain02.sol";
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+/// @title CoreCrossCenter
+/// @author VineLabs member 0xlive(https://github.com/VineFiLabs)
+/// @notice VineFinance CoreCrossCenter
+/// @dev CCTP V1 is used as a cross-chain relay
 contract CoreCrossCenter is
     ICoreCrossCenter,
     IVineStruct
 {
     using SafeERC20 for IERC20;
 
-    bytes1 private immutable ZEROBYTES1;
+    bytes1 private immutable ONEBYTES1 = 0x01;
     bytes32 private immutable ZEROBYTES32;
     address public owner;
     address public manager;
@@ -66,17 +70,21 @@ contract CoreCrossCenter is
         manager = newManager;
     }
 
+    function changeGovernance(address newGovern) external onlyOwner {
+        govern = newGovern;
+    }
+
     function setUSDC(address _usdc) external onlyManager {
         usdc = _usdc;
     }
 
     function batchSetValidCaller(
         address[] calldata callers,
-        bytes1[] calldata states
+        bytes1[] calldata status
     ) external onlyManager {
         unchecked {
             for (uint256 i; i < callers.length; i++) {
-                _ValidFactory[callers[i]] = states[i];
+                _ValidFactory[callers[i]] = status[i];
             }
         }
     }
@@ -102,12 +110,12 @@ contract CoreCrossCenter is
             destHook,
             amount
         );
-        if (crossUSDCState != 0x01) {
-            revert CrossUSDCFail(ErrorType.CrossUSDCFail);
-        }
+        require(crossUSDCState == ONEBYTES1, "Cross fail");
     }
 
     function receiveUSDC(
+        uint8 indexConfig,
+        uint256 id,
         bytes calldata message,
         bytes calldata attestation
     ) external returns(bool) {
@@ -116,8 +124,8 @@ contract CoreCrossCenter is
             message,
             attestation
         );
-        _ValidAttsetation[attestation] = 0x01;
-        IVineAaveV3LendMain(msg.sender).updateFinallyAmount(usdc);
+        _ValidAttsetation[attestation] = ONEBYTES1;
+        IVineAaveV3LendMain02(msg.sender).updateFinallyAmount(indexConfig, id);
         return _receiveState;
     }
 
@@ -139,8 +147,8 @@ contract CoreCrossCenter is
     }
 
     function emergency(
-        uint32 destinationDomain, 
         uint8 indexDestHook, 
+        uint32 destinationDomain, 
         uint256 id, 
         uint256 amount
     ) external onlyManager {
@@ -181,7 +189,7 @@ contract CoreCrossCenter is
             lastestCrossAmount: amount
         });
         emit HookCrossUSDC(msg.sender, destHook, amount);
-        return 0x01;
+        return ONEBYTES1;
     }
 
     function _tokenBalance(
@@ -201,7 +209,7 @@ contract CoreCrossCenter is
 
     function _checkValidCaller() internal view {
         address _factory = ISharer(msg.sender).factory();
-        require(_ValidFactory[_factory] == 0x01, "Invalid factory");
+        require(_ValidFactory[_factory] == ONEBYTES1, "Invalid factory");
         bool state = IFactorySharer(_factory).ValidMarket(msg.sender);
         require(state, "Invalid market");
     }

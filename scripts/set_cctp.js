@@ -67,29 +67,29 @@ async function main() {
     if(chainId === 43113n){
       const CrossCenter=new ethers.Contract(config.Deployed.CoreCrossCenter, CoreCrossCenterABI.abi, manager);
       const factorys=[config.Deployed.VineAaveV3LendMain02Factory];
-      const states=['0x01'];
-      const batchSetValidCaller = await CrossCenter.batchSetValidCaller(factorys, states);
+      const status=['0x01'];
+      const batchSetValidCaller = await CrossCenter.batchSetValidCaller(factorys, status);
       await batchSetValidCaller.wait();
       console.log("batchSetValidCaller success");
     }else if(chainId === 421614n){
         const CrossCenter=new ethers.Contract(config.Deployed.CrossCenter, CrossCenterABI.abi, manager);
-        const factorys=[config.Deployed.VineInL2LendFactory, config.Deployed.VineUniswapFactory];
-        const states=['0x01', '0x01'];
-        const batchSetValidCaller = await CrossCenter.batchSetValidCaller(factorys, states);
+        const factorys=[config.Deployed.VineInL2LendFactory];
+        const status=['0x01'];
+        const batchSetValidCaller = await CrossCenter.batchSetValidCaller(factorys, status);
         await batchSetValidCaller.wait();
         console.log("batchSetValidCaller success");
     }else if(chainId === 84532n){
       const CrossCenter=new ethers.Contract(config.Deployed.CrossCenter, CrossCenterABI.abi, manager);
-      const factorys=[config.Deployed.VineInL2LendFactory, config.Deployed.VineMorphoFactory];
-      const states=['0x01', '0x01'];
-      const batchSetValidCaller = await CrossCenter.batchSetValidCaller(factorys, states);
+      const factorys=[config.Deployed.VineInL2LendFactory, config.Deployed.VineMorphoFactory, config.Deployed.VineCompoundFactory];
+      const status=['0x01', '0x01', '0x01'];
+      const batchSetValidCaller = await CrossCenter.batchSetValidCaller(factorys, status);
       await batchSetValidCaller.wait();
       console.log("batchSetValidCaller success");
     }else{
         const CrossCenter=new ethers.Contract(config.Deployed.CrossCenter, CrossCenterABI.abi, manager);
         const factorys=[config.Deployed.VineInL2LendFactory];
-        const states=['0x01'];
-        const batchSetValidCaller = await CrossCenter.batchSetValidCaller(factorys, states);
+        const status=['0x01'];
+        const batchSetValidCaller = await CrossCenter.batchSetValidCaller(factorys, status);
         await batchSetValidCaller.wait();
         console.log("batchSetValidCaller success");
     }

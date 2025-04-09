@@ -4,6 +4,11 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./ShareToken.sol";
 import {IGetHook} from "../interfaces/core/IGetHook.sol";
 import {ISharer} from "../interfaces/ISharer.sol";
+
+/// @title VineVaultCore
+/// @author VineLabs member 0xlive(https://github.com/VineFiLabs)
+/// @notice VineFinance VineVaultCore
+/// @dev Segregate funds for each strategy and deposit them in VineVaultCore
 contract VineVaultCore is ShareToken{
     using SafeERC20 for IERC20;
     
@@ -25,6 +30,7 @@ contract VineVaultCore is ShareToken{
 
 
     event CallVault(address indexed caller, address indexed token, uint256 amount);
+    event CallWayEvent(address indexed caller, address token, uint256 amount, bytes data);
     event NewDomain(uint32 newDomain);
     receive() external payable{}
 
@@ -60,30 +66,31 @@ contract VineVaultCore is ShareToken{
     function callVault(address token, uint256 amount)external onlyValidCaller returns(bool state){
         if(token == address(0)){
             (state, ) = msg.sender.call{value: amount}("");
+            require(address(this).balance >=amount, "Insufficient quantity");
         }else{
+            require(IERC20(token).balanceOf(address(this)) >=amount, "Insufficient quantity");
             IERC20(token).safeTransfer(msg.sender, amount);
             state = true;
         }
         emit CallVault(msg.sender, token, amount);
     }
 
-    function delegateCallWay(
+    function callWay(
         uint8 tokenType, 
         address token, 
         address caller, 
         uint256 amount, 
         bytes memory data
-    )external onlyValidCaller{
-        bool success;
+    )external onlyValidCaller returns(bool success){
         if(tokenType == 0){
-            (success, ) = caller.delegatecall(data);
+            (success, ) = caller.call(data);
         }else if(tokenType == 1){
             (success, ) = caller.call{value: amount}(data);
         }else{
             IERC20(token).approve(caller, amount);
-            (success, ) = caller.delegatecall(data);
+            (success, ) = caller.call(data);
         }
-        require(success, "DelegateCall fail");
+        emit CallWayEvent(caller, token, amount, data);
     }
 
     function depositeMint(address to, uint256 amount)external onlyValidCaller returns(bytes1){

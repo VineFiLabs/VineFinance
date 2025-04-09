@@ -5,7 +5,7 @@ const GovernanceABI=require("../artifacts/contracts/core/Governance.sol/Governan
 const VineHookCenterABI=require("../artifacts/contracts/core/VineHookCenter.sol/VineHookCenter.json");
 const VineAaveV3LendMain02FactoryABI=require("../artifacts/contracts/hook/aave/VineAaveV3LendMain02Factory.sol/VineAaveV3LendMain02Factory.json");
 const VineInL2LendFactoryABI=require("../artifacts/contracts/hook/aave/VineInL2LendFactory.sol/VineInL2LendFactory.json");
-const VineInETHLendFactoryABI=require("../artifacts/contracts/hook/aave/VineInETHLendFactory.sol/VineInETHLendFactory.json");
+const VineInL1LendFactoryABI=require("../artifacts/contracts/hook/aave/VineInL1LendFactory.sol/VineInL1LendFactory.json");
 
 const Set=require('../set.json');
 
@@ -23,7 +23,7 @@ async function main() {
     const chainId = network.chainId;
     console.log("Chain ID:", chainId);
 
-    let currentUser = testUser3;
+    let currentUser = manager;
 
     async function sendETH(toAddress, amountInEther) {
         const amountInWei = ethers.parseEther(amountInEther);
@@ -36,7 +36,7 @@ async function main() {
         console.log("Transfer eth success");
     }
 
-    await sendETH(currentUser.address, "0.03");
+    // await sendETH(currentUser.address, "0.03");
 
 
     let config;
@@ -78,13 +78,18 @@ async function main() {
     if(chainId === 43113n){
         const UserGovernance=new ethers.Contract(config.Deployed.Governance, GovernanceABI.abi, currentUser);
 
-        //30 days
+        const RegisterParams = {
+          crossCenterIndex: 0,
+          feeRate: 500,
+          domain: config.Domain,
+          bufferTime: 86600n,
+          endTime: 176600n,
+          thisFeeReceiver: currentUser.address,
+          tokenName: "Vine USDC Share2",
+          tokenSymbol: "V-USDC-SHARE2"
+        };
         const register = await UserGovernance.register(
-            0,
-            1000,
-            304800n,
-            604800n,
-            currentUser.address
+          RegisterParams
         );
         await register.wait();
         console.log("register success");
@@ -97,12 +102,13 @@ async function main() {
         console.log("marketInfo:", marketInfo);
 
         const testUserFactory=new ethers.Contract(config.Deployed.VineAaveV3LendMain02Factory, VineAaveV3LendMain02FactoryABI.abi, currentUser);
-        const createMainMarket = await testUserFactory.createMarket(manager.address, manager.address, "Vine USDC Share" + `${ID}`, "V-USDC-SHARE" + `${ID}`);
-        await createMainMarket.wait();
-        console.log("createMainMarket success");
-        const getUserIdToHook=await testUserFactory.getUserIdToHook(ID);
-        console.log("Hook:", getUserIdToHook);
-        config.Deployed[`VineAaveV3LendMain02Hook${ID}`]=getUserIdToHook;
+
+        // const createMainMarket = await testUserFactory.createMarket(manager.address, manager.address);
+        // await createMainMarket.wait();
+        // console.log("createMainMarket success");
+        // const getUserIdToHook=await testUserFactory.getUserIdToHook(ID);
+        // console.log("Hook:", getUserIdToHook);
+        // config.Deployed[`VineAaveV3LendMain02Hook${ID}`]=getUserIdToHook;
     }else if(chainId === 11155420n || chainId === 84532n || chainId === 421614n){
         const UserGovernance=new ethers.Contract(config.Deployed.VineHookCenter, VineHookCenterABI.abi, currentUser);
         const register = await UserGovernance.register(0);
@@ -135,7 +141,7 @@ async function main() {
       await register.wait();
       console.log("register success");
 
-        const testUserFactory=new ethers.Contract(config.Deployed.VineInL2LendFactory, VineInETHLendFactoryABI.abi, currentUser);
+        const testUserFactory=new ethers.Contract(config.Deployed.VineInL2LendFactory, VineInL1LendFactoryABI.abi, currentUser);
         const govern=await testUserFactory.govern();
         console.log("govern:", govern);
         const createMainMarket = await testUserFactory.createMarket(manager.address, manager.address);

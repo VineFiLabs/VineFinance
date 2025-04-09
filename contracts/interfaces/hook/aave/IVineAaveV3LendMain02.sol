@@ -15,47 +15,46 @@ interface IVineAaveV3LendMain02 is ISharer, IVineStruct{
     //user deposite usdc
     function deposite(
         uint256 id,
+        uint8 indexConfig,
         uint64 amount,
-        address usdc,
-        address usdcPool,
         address receiver
     ) external;
 
-    function withdraw(uint256 id, address usdc) external;
+    function withdraw(uint8 indexConfig, uint256 id) external;
 
-    function withdrawFee(uint256 id, address usdc) external;
+    function withdrawFee(uint8 indexConfig, uint256 id) external;
+
+    function officeWithdraw(uint8 indexConfig, uint256 id) external;
 
     function inL1Supply(
+        uint8 indexConfig,
         uint256 id,
-        address usdcPool,
-        address usdc,
         uint256 amount
     ) external;
 
     function inL1Withdraw(
+        uint8 indexConfig,
         uint256 id,
-        address usdcPool,
-        address ausdc,
-        address usdc,
         uint256 amount
     ) external;
 
     function crossUSDC(
         uint256 id,
+        uint8 indexConfig,
         uint8 indexDestHook,
         uint32 destinationDomain,
         uint64 inputBlock,
-        address usdc,
         uint256 amount
     ) external;
 
     function receiveUSDC(
+        uint8 indexConfig,
         uint256 id,
         bytes calldata message,
         bytes calldata attestation
-    ) external;
+    ) external returns(bool);
 
-    function updateFinallyAmount(uint256 id, address usdc) external;
+    function updateFinallyAmount(uint8 indexConfig, uint256 id) external;
 
     function getUserSupply(address user, uint256 id)external view returns(UserSupplyInfo memory);
 

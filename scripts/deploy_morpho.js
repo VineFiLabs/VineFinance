@@ -1,11 +1,9 @@
 const hre = require("hardhat");
 const fs = require("fs");
 const ERC20ABI = require("../artifacts/contracts/TestToken.sol/TestToken.json");
-const VineUniswapV3CoreABI = require("../artifacts/contracts/hook/uniswap/VineUniswapV3Core.sol/VineUniswapV3Core.json");
-const VineUniswapV3FactoryABI = require("../artifacts/contracts/hook/uniswap/VineUniswapV3Factory.sol/VineUniswapV3Factory.json");
 const Set = require("../set.json");
 
-// VineMorphoFactory address: 0xd8337e5E64705c30b6156fD2d85cE6F6e93b47Ed
+// VineMorphoFactory address: 
 
 async function main() {
   const [owner, manager, testUser, testUser3, testUser4] = await hre.ethers.getSigners();
@@ -68,9 +66,6 @@ async function main() {
   config.Deployed.VineMorphoFactory = VineMorphoFactoryAddress;
 
   const baseMorphoMarket = "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb";
-  const changeMorphoMarket = await VineMorphoFactory.changeMorphoMarket(0, baseMorphoMarket);
-  const changeMorphoMarketTx = await changeMorphoMarket.wait();
-  console.log("changeMorphoMarketTx:", changeMorphoMarketTx.hash);
   
 
   const setPath = "./set.json";

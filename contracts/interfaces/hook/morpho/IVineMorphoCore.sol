@@ -1,7 +1,14 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.23;
 
 interface IVineMorphoCore {
+
+    struct MorphoInfo{
+        uint256 assetsSupplied; 
+        uint256 sharesSupplied;
+        uint256 amountWithdrawn;
+        uint256 sharesWithdrawn;
+    }
 
     event MorphoSupply(
         address indexed sender,

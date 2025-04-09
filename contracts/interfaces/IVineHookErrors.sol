@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 interface IVineHookErrors {
+
     enum ErrorType{
         Lock,
         EndOfPledge,
@@ -42,6 +43,8 @@ interface IVineHookErrors {
     error AlreadyEnd(ErrorType);
     error CrossUSDCFail(ErrorType);
     error ReceiveUSDCFail(ErrorType);
+
+    error CallVaultFail(bytes1); //0x15
 
     
 }

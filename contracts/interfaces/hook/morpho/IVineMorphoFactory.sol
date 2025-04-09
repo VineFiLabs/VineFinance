@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.23;
 
 interface IVineMorphoFactory {
@@ -8,7 +8,5 @@ interface IVineMorphoFactory {
         uint256 indexed marketId,
         address market
     );
-
-    function MorphoMarketState(address) external view returns(bool);
 
 }

@@ -15,7 +15,7 @@ async function main() {
   console.log("testUser3:", testUser3.address);
   console.log("testUser4:", testUser4.address);
 
-  let currentUser = testUser3;
+  let currentUser = manager;
 
   const provider = ethers.provider;
   const network = await provider.getNetwork();
@@ -77,7 +77,11 @@ async function main() {
     currentUser
   );
 
-  const register = await VineHookCenter.register(0);
+  const register = await VineHookCenter.register(
+    0,
+    config.Domain,
+    [Set["Avalanche_fuji"].Domain, Set["Arbitrum_Sepolia"].Domain, Set["Base_Sepolia"].Domain, Set["Op_Sepolia"].Domain]
+  );
   const registerTx = await register.wait();
   console.log("register success:", registerTx.hash);
 
@@ -93,18 +97,24 @@ async function main() {
   const createMorphoMarketTx = await createMorphoMarket.wait();
   console.log("createMorphoMarket tx:", createMorphoMarketTx.hash);
 
-  const getCuratorToId = await VineHookCenter.getCuratorToId(
+  const baseMorphoMarket = "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb";
+
+  const lastId = await VineHookCenter.ID();
+  const currentId = lastId -1n
+  console.log("currentId:", currentId);
+
+  const getCuratorId = await VineHookCenter.getCuratorId(
     currentUser.address
   );
-  console.log("getCuratorToId:", getCuratorToId);
+  console.log("getCuratorId:", getCuratorId);
 
-  const getUserIdToHook = await VineMorphoFactory.getUserIdToHook(
-    getCuratorToId
+  const getUserIdToHook = await VineMorphoFactory.CuratorIdToHookMarketInfo(
+    getCuratorId
   );
   console.log("Morpho hook:", getUserIdToHook);
 
   const VineMorphoHook = new ethers.Contract(
-    getUserIdToHook,
+    getUserIdToHook[1],
     VineMorphoHookABI.abi,
     manager
   );
@@ -116,10 +126,10 @@ async function main() {
 
   const ID =
     "0xe36464b73c0c39836918f7b2b9a6f1a8b70d7bb9901b38f29544d9b96119862e";
-  const getPosition = await VineMorphoHook.getPosition(0, ID, getUserIdToHook);
+  const getPosition = await VineMorphoHook.getPosition(ID, currentUser, baseMorphoMarket);
   console.log("getPosition:", getPosition);
 
-  const marketParams = await VineMorphoHook.getIdToMarketParams(0, ID);
+  const marketParams = await VineMorphoHook.getIdToMarketParams(ID, baseMorphoMarket);
   console.log("marketParams:", marketParams);
 
   const MarketParams = {
@@ -139,7 +149,7 @@ async function main() {
   // const withdrawTx = await withdraw.wait();
   // console.log("withdraw:", withdrawTx.hash);
 
-  config.Deployed[`VineMorphoHook${getCuratorToId}`] = getUserIdToHook;
+  config.Deployed[`VineMorphoHook${getCuratorId}`] = getUserIdToHook[1];
 
   const setPath = "./set.json";
   const currentSet = JSON.parse(fs.readFileSync(setPath, "utf8"));

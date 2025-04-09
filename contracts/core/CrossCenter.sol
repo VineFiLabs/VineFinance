@@ -1,16 +1,20 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.23;
 import {IMessageTransmitter} from "../interfaces/cctp/IMessageTransmitter.sol";
 import {ITokenMessenger} from "../interfaces/cctp/ITokenMessenger.sol";
 import {IVineStruct} from "../interfaces/IVineStruct.sol";
 import {IVineHookErrors} from "../interfaces/IVineHookErrors.sol";
-import {ICrossCenter} from "../interfaces/ICrossCenter.sol";
+import {ICrossCenter} from "../interfaces/core/ICrossCenter.sol";
 import {IGovernance} from "../interfaces/core/IGovernance.sol";
 import {IFactorySharer} from "../interfaces/IFactorySharer.sol";
 import {ISharer} from "../interfaces/ISharer.sol";
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+/// @title CrossCenter
+/// @author VineLabs member 0xlive(https://github.com/VineFiLabs)
+/// @notice VineFinance CrossCenter
+/// @dev CCTP V1 is used as a cross-chain relay
 contract CrossCenter is
     ICrossCenter,
     IVineStruct,
@@ -18,10 +22,12 @@ contract CrossCenter is
 {
     using SafeERC20 for IERC20;
 
+    bytes1 private immutable ONEBYTES1 = 0x01;
     bytes32 private immutable ZEROBYTES32;
     address public owner;
     address public manager;
     address public govern;
+    address public usdc;
     address public tokenMessager;
     address public messageTransmitter;
 
@@ -29,12 +35,14 @@ contract CrossCenter is
         address _owner,
         address _manager,
         address _govern,
+        address _usdc,
         address _tokenMessager,
         address _messageTransmitter
     ) {
         owner = _owner;
         manager = _manager;
         govern = _govern;
+        usdc = _usdc;
         tokenMessager = _tokenMessager;
         messageTransmitter = _messageTransmitter;
     }
@@ -63,13 +71,21 @@ contract CrossCenter is
         manager = newManager;
     }
 
+    function changeGovernance(address newGovern) external onlyOwner {
+        govern = newGovern;
+    }
+
+    function setUSDC(address _usdc) external onlyManager {
+        usdc = _usdc;
+    }
+
     function batchSetValidCaller(
         address[] calldata callers,
-        bytes1[] calldata states
+        bytes1[] calldata status
     ) external onlyManager {
         unchecked {
             for (uint256 i; i < callers.length; i++) {
-                _ValidFactory[callers[i]] = states[i];
+                _ValidFactory[callers[i]] = status[i];
             }
         }
     }
@@ -86,7 +102,6 @@ contract CrossCenter is
         uint32 destinationDomain,
         uint64 sendBlock,
         bytes32 destHook,
-        address usdc,
         uint256 amount
     ) external {
         _checkValidCaller();
@@ -94,12 +109,9 @@ contract CrossCenter is
             destinationDomain,
             sendBlock,
             destHook,
-            usdc,
             amount
         );
-        if (crossUSDCState != 0x01) {
-            revert CrossUSDCFail(ErrorType.CrossUSDCFail);
-        }
+        require(crossUSDCState == ONEBYTES1, "Cross fail");
     }
 
     function receiveUSDC(
@@ -128,9 +140,8 @@ contract CrossCenter is
     }
 
     function emergency(
-        address usdc, 
-        uint32 destinationDomain, 
         uint8 indexDestHook, 
+        uint32 destinationDomain, 
         uint256 id, 
         uint256 amount
     ) external onlyManager {
@@ -146,7 +157,6 @@ contract CrossCenter is
         uint32 destinationDomain,
         uint64 sendBlock,
         bytes32 destHook,
-        address usdc,
         uint256 amount
     ) private returns (bytes1) {
         if (destHook == ZEROBYTES32) {
@@ -170,7 +180,7 @@ contract CrossCenter is
             lastestCrossAmount: amount
         });
         emit HookCrossUSDC(msg.sender, destHook, amount);
-        return 0x01;
+        return ONEBYTES1;
     }
 
     function _receiveUSDC(
@@ -181,7 +191,7 @@ contract CrossCenter is
             message,
             attestation
         );
-        _ValidAttsetation[attestation] = 0x01;
+        _ValidAttsetation[attestation] = ONEBYTES1;
     }
 
     function _tokenBalance(
@@ -201,7 +211,7 @@ contract CrossCenter is
 
     function _checkValidCaller() internal view {
         address _factory = ISharer(msg.sender).factory();
-        require(_ValidFactory[_factory] == 0x01, "Invalid factory");
+        require(_ValidFactory[_factory] == ONEBYTES1, "Invalid factory");
         bool state = IFactorySharer(_factory).ValidMarket(msg.sender);
         require(state, "Invalid market");
     }

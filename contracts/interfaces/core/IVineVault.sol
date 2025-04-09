@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.23;
 
 interface IVineVault {
@@ -7,12 +7,12 @@ interface IVineVault {
 
     function callVault(address token, uint256 amount)external payable returns(bool state);
 
-    function delegateCallWay(
+    function callWay(
         uint8 tokenType, 
         address token, 
-        address spender, 
+        address caller, 
         uint256 amount, 
         bytes memory data
-    )external;
+    )external returns(bool success);
     
 }

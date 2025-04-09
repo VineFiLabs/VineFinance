@@ -78,24 +78,22 @@ abstract contract ShareToken is
         return _balances[account];
     }
 
-    function depositeMint(
+    function _depositeMint(
         address to,
         uint256 amount
-    ) internal returns (bytes1 _state) {
+    ) internal {
         _mint(to, amount);
-        _state = 0x01;
     }
 
-    function withdrawBurn(
+    function _withdrawBurn(
         address to,
         uint256 amount
-    ) internal returns (bytes1 _state) {
+    ) internal {
         uint256 _balance = _balances[to];
         if (_balance < amount) {
             revert ERC20InsufficientBalance(to, _balance, amount);
         }
         _burn(to, amount);
-        _state = 0x01;
     }
 
     /**

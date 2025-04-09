@@ -3,7 +3,8 @@ pragma solidity ^0.8.23;
 interface IGetHook {
     struct ValidHooksInfo {
         bytes32[] hooks;           
-        bytes1 state;            
+        bytes1 state;         
+        bytes32 vault;   
     }
     struct IdValidHooksInfo {
         mapping(uint32 => ValidHooksInfo) destHooks;  
@@ -11,6 +12,8 @@ interface IGetHook {
     }
 
     function getDestHook(uint256 id, uint32 destinationDomain, uint8 index) external view returns(bytes32 hook);
+
+    function getDestVault(uint256 id, uint32 destinationDomain) external view returns(bytes32 destVault);
 
     function getDestChainValidHooks(uint256 id, uint32 destinationDomain)external view returns(ValidHooksInfo memory);
 

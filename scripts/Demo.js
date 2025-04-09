@@ -13,6 +13,11 @@ async function main() {
   const chainId = network.chainId;
   console.log("Chain ID:", chainId);
 
+  const baseUSDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
+  const comp = "0x2f535da74048c0874400f0371Fba20DF983A56e2";
+  const rewardsContract = "0x3394fa1baCC0b47dd0fF28C8573a476a161aF7BC"; 
+  const compoundAddress = "0x571621Ce60Cebb0c1D442B5afb38B1663C6Bf017";
+
   const arbUSDC = "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d";
   const arbAUSDC = "0x460b97BD498E1157530AEb3086301d5225b91216";
   const arbWETH = "0x1dF462e2712496373A347f8ad10802a5E95f053D";
@@ -32,17 +37,17 @@ async function main() {
     // const DemoAddress = await Demo.target;
     // console.log("Demo Address:", DemoAddress);
 
-    const DemoAddress="0xcDA2cA46B8f85FE45E98Cfaf2d999eAD5eA729D9";
+    const DemoAddress="0x40F6f5Ed95f5a17C62d7F0596a0FfbE67C4071b5";
     const Demo=new ethers.Contract(DemoAddress, DemoABI.abi, owner);
 
-  const USDCContract = new ethers.Contract(arbUSDC, ERC20ABI.abi, owner);
-  const AUSDCContract = new ethers.Contract(arbAUSDC, ERC20ABI.abi, owner);
+  // const USDCContract = new ethers.Contract(arbUSDC, ERC20ABI.abi, owner);
+  // const AUSDCContract = new ethers.Contract(arbAUSDC, ERC20ABI.abi, owner);
 
   async function Approve(token, Spender, Amount) {
     try {
       const Token = new ethers.Contract(token, ERC20ABI.abi, owner);
       const allowance = await Token.allowance(owner.address, Spender);
-      if (allowance < Amount) {
+      if (allowance < ethers.parseEther("10000")) {
         const approve = await Token.approve(
           Spender,
           ethers.parseEther("10000000")
@@ -55,9 +60,42 @@ async function main() {
     }
   }
   const amount = ethers.parseEther("100000000");
-  await Approve(arbUSDC, DemoAddress, amount);
+  await Approve(baseUSDC, DemoAddress, amount);
   // await Approve(arbAUSDC, DemoAddress, amount);
-  await Approve(FakeETHAddress, DemoAddress, amount)
+  // await Approve(FakeETHAddress, DemoAddress, amount);
+
+  // const compoundSupply = await Demo.compoundSupply(
+  //   compoundAddress,
+  //   baseUSDC,
+  //   1000n
+  // );
+  // const compoundSupplyTx = await compoundSupply.wait();
+  // console.log("compoundSupply tx:", compoundSupplyTx.hash);
+  
+
+  const getSupplyApr = await Demo.getSupplyApr(compoundAddress);
+  console.log("getSupplyApr:", getSupplyApr);
+
+  // const getRewardAprForSupplyBase = await Demo.getRewardAprForSupplyBase(
+  //   compoundAddress,
+  //   rewardsContract
+  // );
+  // console.log("getRewardAprForSupplyBase:", getRewardAprForSupplyBase);
+
+  const claimCometRewards = await Demo.claimCometRewards(
+    compoundAddress,
+    rewardsContract
+  );
+  const claimCometRewardsTx = await claimCometRewards.wait();
+  console.log("claimCometRewards:", claimCometRewardsTx.hash);
+
+  const compoundWithdraw = await Demo.compoundWithdraw(
+    compoundAddress,
+    baseUSDC,
+    1000n
+  );
+  const compoundWithdrawTx = await compoundWithdraw.wait();
+  console.log("compoundWithdraw tx:", compoundWithdrawTx.hash);
 
   //swap
   const V3SwapParams={
@@ -70,11 +108,11 @@ async function main() {
     amountOutMinimum: 0,
     v3Router: arb_uniswapV3Router
   };
-  const v3Swap=await Demo.v3Swap(
-    V3SwapParams
-  );
-  const v3SwapTx=await v3Swap.wait();
-  console.log("v3Swap Tx:", v3SwapTx.hash);
+  // const v3Swap=await Demo.v3Swap(
+  //   V3SwapParams
+  // );
+  // const v3SwapTx=await v3Swap.wait();
+  // console.log("v3Swap Tx:", v3SwapTx.hash);
 
   // const inL2Supply=await Demo.inL2Supply(
   //   arbPool,

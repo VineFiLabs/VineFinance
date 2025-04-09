@@ -1,15 +1,17 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.23;
 
 interface IVineEvent{
-    event UserDeposite(address indexed _user,uint256 indexed _amount);
-    event UserWithdraw(address indexed _user,uint256 indexed _amount);
-    event L2Supply(uint256 amount);
-    event L2withdraw(uint256 _usdcAmount,uint256 _ausdcAmount);
+
+    event UserDeposite(uint256 indexed id, address indexed user,uint256  amount);
+    event UserWithdraw(uint256 indexed id, address indexed user,uint256  amount);
+    event AaveV3Supply(uint256 indexed id, uint256 amount);
+    event AaveV3Withdraw(uint256 indexed id, uint256 amount);
 
     event CrossUSDC(address indexed _receiver,uint256 amount);
     event ReceiveMessage(address indexed receiver,address indexed token,uint256 indexed amount);
+    event Emergency(uint256 indexed id, uint256 time);
 
     event UpdateFee(uint16 oldFee, uint16 newFee);
-    event UpdateTime(uint64 _bufferTime, uint64 _endTime);
+    event UpdateTime(uint64 bufferTime, uint64 endTime);
 }

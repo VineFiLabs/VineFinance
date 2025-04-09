@@ -3,6 +3,10 @@ pragma solidity ^0.8.23;
 
 import {VineVaultCore} from "./VineVaultCore.sol";
 
+/// @title VineVaultCoreFactory
+/// @author VineLabs member 0xlive(https://github.com/VineFiLabs)
+/// @notice VineFinance VineVaultCoreFactory
+/// @dev The VineVaultCore factory
 contract VineVaultCoreFactory {
 
     address public govern;

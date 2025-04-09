@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.23;
 
 import "./VineAaveV3LendMain02.sol";
@@ -7,34 +7,39 @@ import {IFactorySharer} from "../../interfaces/IFactorySharer.sol";
 
 contract VineAaveV3LendMain02Factory is IFactorySharer{
 
+    bytes1 private immutable ZEROBYTES1;
+    bytes1 private immutable ONEBYTES1 = 0x01;
     address public govern;
 
     constructor(address _govern) {
         govern = _govern;
     }
 
-    mapping(address => bool) public ValidMarket;
-    mapping(uint256 => address) internal UserIdToHook;
-
-    event CreateAaveV3MainLendMarket(address indexed creator, uint256 indexed marketId, address market);
-
-    function createMarket(address owner, address manager, string memory tokenName, string memory tokenSymbol) external {
-        address currentUser = msg.sender;
-        uint256 id=IGovernance(govern).getCuratorToId(currentUser);
-        require(UserIdToHook[id] == address(0),"Already create");
-        address aaveV3MainLendMarket = address(
-            new VineAaveV3LendMain02{
-                salt: keccak256(abi.encodePacked(id, currentUser))
-            }(govern, owner, manager, id, tokenName, tokenSymbol)
-        );
-        require(aaveV3MainLendMarket != address(0));
-        ValidMarket[aaveV3MainLendMarket]=true;
-        UserIdToHook[id]=aaveV3MainLendMarket;
-        emit CreateAaveV3MainLendMarket(currentUser, id, aaveV3MainLendMarket);
+    struct HookMarketInfo{
+        bytes1 state;
+        address hook;
     }
 
-    function getUserIdToHook(uint256 _id)external view returns(address){
-        return UserIdToHook[_id];
+    mapping(uint64 => HookMarketInfo) public CuratorIdToHookMarketInfo;
+    mapping(address => bool) public ValidMarket;
+
+    event CreateAaveV3MainLendMarket(address indexed creator, uint64 indexed thisCuratorId, address market);
+
+    function createMarket(address owner, address manager) external {
+        uint64 curatorId = IGovernance(govern).getCuratorId(msg.sender);
+        require(CuratorIdToHookMarketInfo[curatorId].state == ZEROBYTES1,"Already create");
+        address aaveV3MainLendMarket = address(
+            new VineAaveV3LendMain02{
+                salt: keccak256(abi.encodePacked(curatorId, msg.sender, block.chainid))
+            }(govern, owner, manager, curatorId)
+        );
+        CuratorIdToHookMarketInfo[curatorId] = HookMarketInfo({
+            state: ONEBYTES1,
+            hook: aaveV3MainLendMarket
+        });
+        ValidMarket[aaveV3MainLendMarket] = true;
+        emit CreateAaveV3MainLendMarket(msg.sender, curatorId, aaveV3MainLendMarket);
+        require(aaveV3MainLendMarket != address(0));
     }
 
 }

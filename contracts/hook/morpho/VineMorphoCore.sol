@@ -1,57 +1,48 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.23;
 
-import {IMessageTransmitter} from "../../interfaces/cctp/IMessageTransmitter.sol";
-import {ITokenMessenger} from "../../interfaces/cctp/ITokenMessenger.sol";
-import {IVineStruct} from "../../interfaces/IVineStruct.sol";
 import {IVineEvent} from "../../interfaces/IVineEvent.sol";
-import {IVineMorphoCore} from "../../interfaces/hooks/IVineMorphoCore.sol";
+import {IVineMorphoCore} from "../../interfaces/hook/morpho/IVineMorphoCore.sol";
 import {IVineHookErrors} from "../../interfaces/IVineHookErrors.sol";
-import {ICrossCenter} from "../../interfaces/ICrossCenter.sol";
+import {ICrossCenter} from "../../interfaces/core/ICrossCenter.sol";
 import {IVineHookCenter} from "../../interfaces/core/IVineHookCenter.sol";
 import {VineLib} from "../../libraries/VineLib.sol";
-import {IVineMorphoFactory} from "../../interfaces/hooks/IVineMorphoFactory.sol";
+import {IVineVault} from "../../interfaces/core/IVineVault.sol";
+import {IVineConfig1} from "../../interfaces/core/IVineConfig1.sol";
 
 import {IMorpho, MarketParams, Position, Market, Authorization, Id} from "../../interfaces/morpho/IMorpho.sol";
+import {IMorphoReward} from "../../interfaces/morpho/IMorphoReward.sol";
 
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+/// @title VineMorphoCore
+/// @author VineLabs member 0xlive(https://github.com/VineFiLabs)
+/// @notice morpho module
 contract VineMorphoCore is 
     IVineMorphoCore, 
-    IVineStruct, 
     IVineEvent, 
     IVineHookErrors 
 {
     using SafeERC20 for IERC20;
 
-    uint256 public id;
     bytes1 private immutable ONEBYTES1 = 0x01;
-    uint32 public currentDomain;
+    uint64 public curatorId;
     address public factory;
     address public govern;
     address public owner;
     address public manager;
-    uint256 public emergencyTime;
-
-    struct MorphoInfo{
-        uint256 assetsSupplied; 
-        uint256 sharesSupplied;
-        uint256 amountWithdrawn;
-        uint256 sharesWithdrawn;
-    }
-    mapping(uint256 => MorphoInfo) public IdToMorphoInfo;
-
-    constructor(address _govern, address _owner, address _manager, uint256 _id) {
+    constructor(address _govern, address _owner, address _manager, uint64 _curatorId) {
         factory = msg.sender;
         govern = _govern;
         owner = _owner;
         manager = _manager;
-        id = _id;
-        currentDomain = VineLib._currentDomain();
+        curatorId = _curatorId;
     }
 
-    mapping(uint32 => address) private destinationDomainToRecever;
+    mapping(uint256 => uint256)public emergencyTime;
+
+    mapping(uint256 => MorphoInfo) public IdToMorphoInfo;
 
     modifier onlyOwner() {
         _checkOwner();
@@ -62,25 +53,21 @@ contract VineMorphoCore is
         _checkManager();
         _;
     }
-
-    function transferOwner(address newOwner) external onlyOwner {
-        owner = newOwner;
-    }
-
     function transferManager(address newManager) external onlyOwner {
         manager = newManager;
     }
-
-    function changeDomain(uint32 newDomain) external onlyManager{
-        currentDomain = newDomain;
-    }
     function supply(
         MarketParams memory marketParams,
-        uint8 indexMorphoMarket,
+        uint256 id,
+        uint8 indexConfig,
         uint256 amount,
         uint256 shares
     ) external onlyManager{
-        address morphoMarket = _indexMorphoMarket(indexMorphoMarket);
+        _checkValidId(id);
+        address USDC = _getVineConfig(indexConfig, id).mainToken;
+        address morphoMarket = _getVineConfig(indexConfig, id).callee;
+        address vineVault = _getMarketInfo(id).vineVault;
+        require(IVineVault(vineVault).callVault(USDC, amount), "Call vault fail");
         IERC20(marketParams.loanToken).approve(morphoMarket, amount);
         bytes memory data = hex"";
         (uint256 assetsSupplied, uint256 sharesSupplied) = IMorpho(morphoMarket)
@@ -92,48 +79,58 @@ contract VineMorphoCore is
 
     function withdraw(
         MarketParams memory marketParams,
-        uint8 indexMorphoMarket,
+        uint256 id,
+        uint8 indexConfig,
         uint256 amount,
         uint256 shares
     ) external {
-        _checkOperator();
-        address morphoMarket = _indexMorphoMarket(indexMorphoMarket);
+        _checkValidId(id);
+        _checkOperator(id);
+        address morphoMarket = _getVineConfig(indexConfig, id).callee;
+        address vineVault = _getMarketInfo(id).vineVault;
         (uint256 amountWithdrawn, uint256 sharesWithdrawn) = IMorpho(
             morphoMarket
-        ).withdraw(marketParams, amount, shares, address(this), address(this));
+        ).withdraw(marketParams, amount, shares, address(this), vineVault);
         IdToMorphoInfo[id].amountWithdrawn += amountWithdrawn;
         IdToMorphoInfo[id].sharesWithdrawn += sharesWithdrawn;
         emit MorphoWithdraw(msg.sender, amountWithdrawn, sharesWithdrawn);
     }
 
+    function claimMorphoReward(
+        uint256 id,
+        uint8 indexConfig,
+        uint256 claimable,
+        bytes32[] memory proof
+    ) external {
+        require(msg.sender == _officialManager());
+        address caller = _getVineConfig(indexConfig, id).callee;
+        address morphoRewardAddress = _getVineConfig(indexConfig, id).otherCaller;
+        address rewardProxyReceiver = _getVineConfig(indexConfig, id).rewardProxyReceiver;
+        IMorphoReward(caller).claim(rewardProxyReceiver, morphoRewardAddress, claimable, proof);
+    }
+
     function crossUSDC(
-        uint8 indexDestHook,
+        uint256 id,
+        uint8 indexConfig,
         uint32 destinationDomain,
-        uint64 sendBlock,
-        address usdc,
+        uint64 inputBlock,
         uint256 amount
     ) external {
-        _checkOperator();
-        bytes32 hook = _getValidHook(destinationDomain, indexDestHook);
-        uint256 balance = _tokenBalance(usdc, address(this));
-        if (balance == 0) {
-            revert ZeroBalance(ErrorType.ZeroBalance);
-        }
-        if (destinationDomain == currentDomain) {
-            address destCurrentChainHook = _bytes32ToAddress(hook);
-            IERC20(usdc).approve(destCurrentChainHook, amount);
-            IERC20(usdc).transfer(destCurrentChainHook, amount);
-        } else {
-            address crossCenter = _crossCenter();
-            IERC20(usdc).approve(crossCenter, amount);
-            ICrossCenter(crossCenter).crossUSDC(
-                destinationDomain,
-                sendBlock,
-                hook,
-                usdc,
-                amount
-            );
-        }
+        _checkValidId(id);
+        _checkOperator(id);
+        address usdc = _getVineConfig(indexConfig, id).mainToken;
+        bytes32 destVault = _getValidVault(id, destinationDomain);
+        address crossCenter = _getMarketInfo(id).crossCenter;
+        address currentVault = _getMarketInfo(id).vineVault;
+        require(_bytes32ToAddress(destVault) != currentVault, "Invalid destinationDomain");
+        require(IVineVault(currentVault).callVault(usdc, amount), "call vault fail");
+        IERC20(usdc).approve(crossCenter, amount);
+        ICrossCenter(crossCenter).crossUSDC(
+            destinationDomain,
+            inputBlock,
+            destVault,
+            amount
+        );
     }
 
     function receiveWormholeMessages(
@@ -143,27 +140,33 @@ contract VineMorphoCore is
         uint16,
         bytes32
     ) external payable{
+        require(msg.sender == _wormholeRelayer(), "Not relayer");
         (uint256 crossId, uint256 crossEmergencyTime) = abi.decode(payload, (uint256, uint256));
-        emergencyTime = crossEmergencyTime;
-        if(crossId != id){
-            revert("Invalid id");
-        }
+        _checkValidId(crossId);
+        emergencyTime[crossId] = crossEmergencyTime;
+        emit Emergency(crossId, crossEmergencyTime);
         if(block.timestamp < crossEmergencyTime){
             revert("Not emergency time");
         }
     } 
+
+    function skimToVault(
+        address token, 
+        uint256 id, 
+        uint256 amount
+    ) external {
+        require(msg.sender == _officialManager());
+        address vineVault = _getMarketInfo(id).vineVault;
+        if(amount >0 ){
+            IERC20(token).safeTransfer(vineVault, amount);
+        }
+    }
 
     function _tokenBalance(
         address token,
         address user
     ) private view returns (uint256 _thisTokenBalance) {
         _thisTokenBalance = IERC20(token).balanceOf(user);
-    }
-
-    function _indexMorphoMarket(uint8 index)private view returns(address){
-        address morphoMarket= IVineMorphoFactory(factory).IndexMorphoMarket(index);
-        require(morphoMarket!=address(0), "Invalid morpho market");
-        return morphoMarket;
     }
 
     function _checkOwner() internal view {
@@ -174,17 +177,32 @@ contract VineMorphoCore is
         require(msg.sender == manager, "Non manager");
     }
 
-    function _crossCenter() private view returns(address crossCenter){
-        crossCenter = IVineHookCenter(govern).getMarketInfo(id).crossCenter;
+    function _officialManager() private view returns(address _offManager){
+        _offManager = IVineHookCenter(govern).manager();
     }
 
-    function _getValidHook(uint32 destinationDomain, uint8 indexDestHook) private view returns(bytes32 validHook){
-        validHook = IVineHookCenter(govern).getDestHook(id, destinationDomain, indexDestHook);
+    function _getMarketInfo(uint256 id) private view returns(IVineHookCenter.MarketInfo memory _marketInfo){
+        _marketInfo = IVineHookCenter(govern).getMarketInfo(id);
     }
 
-    function _checkOperator() private view {
-        require(msg.sender == manager || (block.timestamp > emergencyTime && emergencyTime > 0), "Non manager or not emergency time");
+    function _getVineConfig(uint8 indexConfig, uint256 id) private view returns (IVineConfig1.calleeInfo memory _calleeInfo){
+        _calleeInfo = IVineConfig1(_getMarketInfo(id).vineConfigAddress).getCalleeInfo(indexConfig);
+    }
+
+    function _getValidVault(uint256 id, uint32 destinationDomain) private view returns(bytes32 validVault){
+        validVault = IVineHookCenter(govern).getDestVault(id, destinationDomain);
+    }
+
+    function _checkOperator(uint256 id) private view {
+        require(msg.sender == manager || (block.timestamp > emergencyTime[id] && emergencyTime[id] > 0), "Non manager or not emergency time");
     } 
+    function _checkValidId(uint256 id) private view {
+        require(curatorId == _getMarketInfo(id).userId, "Not this curator");
+    }
+
+    function _wormholeRelayer() private view returns(address){
+        return IVineHookCenter(govern).wormholeRelayer();
+    }
 
     function _bytes32ToAddress(
         bytes32 _bytes32Account
@@ -200,29 +218,26 @@ contract VineMorphoCore is
     }
 
     function getIdToMarketParams(
-        uint8 indexMorphoMarket,
-        Id morphoId
+        Id morphoId,
+        address morphoMarket
     )public view returns (MarketParams memory)
     {   
-        address morphoMarket = _indexMorphoMarket(indexMorphoMarket);
         return IMorpho(morphoMarket).idToMarketParams(morphoId);
     }
 
     function getPosition(
-        uint8 indexMorphoMarket,
         Id morphoId,
-        address user
+        address user,
+        address morphoMarket
     ) external view returns (Position memory) {
-        address morphoMarket = _indexMorphoMarket(indexMorphoMarket);
         return IMorpho(morphoMarket).position(morphoId, user);
     }
 
     function getMarket(
-        uint8 indexMorphoMarket,
-        Id morphoId
+        Id morphoId,
+        address morphoMarket
     )external view returns (Market memory market)
     {   
-        address morphoMarket = _indexMorphoMarket(indexMorphoMarket);
         market = IMorpho(morphoMarket).market(morphoId);
     }
 }

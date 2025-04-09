@@ -4,6 +4,11 @@ pragma solidity ^0.8.23;
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IGetHook} from "../interfaces/core/IGetHook.sol";
 import {ISharer} from "../interfaces/ISharer.sol";
+
+/// @title VineVault
+/// @author VineLabs member 0xlive(https://github.com/VineFiLabs)
+/// @notice VineFinance VineVault
+/// @dev Segregate funds for each strategy and deposit them in VineVault
 contract VineVault {
     using SafeERC20 for IERC20;
     
@@ -23,6 +28,7 @@ contract VineVault {
 
 
     event CallVault(address indexed caller, address indexed token, uint256 amount);
+    event CallWayEvent(address indexed caller, address token, uint256 amount, bytes data);
     event NewDomain(uint32 newDomain);
     receive() external payable{}
 
@@ -65,23 +71,22 @@ contract VineVault {
         emit CallVault(msg.sender, token, amount);
     }
 
-    function delegateCallWay(
+    function callWay(
         uint8 tokenType, 
         address token, 
         address caller, 
         uint256 amount, 
         bytes memory data
-    )external onlyValidCaller{
-        bool success;
+    )external onlyValidCaller returns(bool success){
         if(tokenType == 0){
-            (success, ) = caller.delegatecall(data);
+            (success, ) = caller.call(data);
         }else if(tokenType == 1){
             (success, ) = caller.call{value: amount}(data);
         }else{
             IERC20(token).approve(caller, amount);
-            (success, ) = caller.delegatecall(data);
+            (success, ) = caller.call(data);
         }
-        require(success, "DelegateCall fail");
+        emit CallWayEvent(caller, token, amount, data);
     }
 
 }

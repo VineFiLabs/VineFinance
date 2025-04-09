@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.23;
 
 interface ICoreCrossCenter {
@@ -43,6 +43,7 @@ interface ICoreCrossCenter {
     ) external;
 
     function receiveUSDC(
+        uint8 indexConfig,
         uint256 id,
         bytes calldata message,
         bytes calldata attestation

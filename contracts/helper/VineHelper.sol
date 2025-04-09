@@ -1,16 +1,17 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.23;
 import {IGovernance} from "../interfaces/core/IGovernance.sol";
 import {IVineAaveV3LendMain02} from "../interfaces/hook/aave/IVineAaveV3LendMain02.sol";
 import {IVineVaultCore} from "../interfaces/core/IVineVaultCore.sol";
 import {IVineRouter02} from "../interfaces/helper/IVineRouter02.sol";
+import {IRewardPool} from "../interfaces/reward/IRewardPool.sol";
 import "../libraries/VineLib.sol";
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @title VineHelper
-/// @author Vinelabs(https://github.com/VineFiLabs)
+/// @author VineLabs member 0xlive(https://github.com/VineFiLabs)
 /// @notice Aggregate read method
 /// @dev Used to quickly request and respond to multiple data
 contract VineHelper is Ownable{
@@ -61,7 +62,7 @@ contract VineHelper is Ownable{
             ) {
                 state = MarketState.Cooking;
             } else if (
-                block.timestamp >= endTime && block.timestamp < 4 hours
+                block.timestamp >= endTime && block.timestamp < 12 hours
             ) {
                 state = MarketState.PendingWithdraw;
             } else {
@@ -93,15 +94,20 @@ contract VineHelper is Ownable{
         address _user,
         uint256 _id
     ) private view returns (uint256 userFinallyAmount) {
-        userFinallyAmount = VineLib._getUserFinallyAmount(
-            _curatorFee,
-            _protocolFee,
-            _getUserSupplyToHookAmount(_id, _coreLendMarket, _user),
-            getStrategyInfo(_id, _coreLendMarket).depositeTotalAmount,
-            getUserTokenBalance(_vineVault, _user),
-            getStrategyInfo(_id, _coreLendMarket).finallyAmount,
-            _getMarketTotalSupply(_vineVault)
-        );
+        uint256 shareTotalSupply = _getMarketTotalSupply(_vineVault);
+        if(shareTotalSupply ==0){
+            userFinallyAmount = 0;
+        }else{
+            userFinallyAmount = VineLib._getUserFinallyAmount(
+                _curatorFee,
+                _protocolFee,
+                _getUserSupplyToHookAmount(_id, _coreLendMarket, _user),
+                getStrategyInfo(_id, _coreLendMarket).depositeTotalAmount,
+                getUserTokenBalance(_vineVault, _user),
+                getStrategyInfo(_id, _coreLendMarket).finallyAmount,
+                shareTotalSupply
+            );
+        }
     }
 
     function _getMarketTotalSupply(
@@ -200,7 +206,8 @@ contract VineHelper is Ownable{
         returns (
             IGovernance.MarketInfo[] memory marketInfoList,
             MarketState[] memory stateList,
-            uint64[] memory depositeAmountList,
+            IVineAaveV3LendMain02.strategyInfo[] memory strategyInfoList,
+            IRewardPool.RewardTokensInfo[] memory rewardTokensInfoList,
             uint256[] memory totalSupplyList
         )
     {
@@ -217,26 +224,28 @@ contract VineHelper is Ownable{
         }
         marketInfoList = new IGovernance.MarketInfo[](len);
         stateList = new MarketState[](len);
-        depositeAmountList = new uint64[](len);
+        strategyInfoList = new IVineAaveV3LendMain02.strategyInfo[](len);
+        rewardTokensInfoList = new IRewardPool.RewardTokensInfo[](len);
         totalSupplyList = new uint256[](len);
         unchecked {
             for (uint256 i; i < len; i++) {
                 marketInfoList[i] = _getMarketInfo(currentId);
-                address newCoreLendMarket = marketInfoList[i].coreLendMarket;
-                if (newCoreLendMarket == address(0)) {
+                if (marketInfoList[i].coreLendMarket == address(0)) {
                     stateList[i] = MarketState.Blacklist;
-                    depositeAmountList[i] = 0;
                     totalSupplyList[i] = 0;
                 } else {
                     stateList[i] = _getMarketState(
                         currentId,
                         marketInfoList[i],
-                        newCoreLendMarket
+                        marketInfoList[i].coreLendMarket
                     );
-                    depositeAmountList[i] = getStrategyInfo(
+                    strategyInfoList[i] = getStrategyInfo(
                         currentId,
-                        newCoreLendMarket
-                    ).depositeTotalAmount;
+                        marketInfoList[i].coreLendMarket
+                    );
+                    rewardTokensInfoList[i] = IRewardPool(marketInfoList[i].rewardPool).getIdToRewardTokensInfo(
+                        currentId
+                    );
                     totalSupplyList[i] = _getMarketTotalSupply(
                         marketInfoList[i].vineVault
                     );
@@ -253,6 +262,7 @@ contract VineHelper is Ownable{
         external
         view
         returns (
+            uint256[] memory userJoinIds,
             IGovernance.MarketInfo[] memory marketInfoList,
             MarketState[] memory stateList,
             IVineAaveV3LendMain02.strategyInfo[] memory strategyInfoList,
@@ -263,32 +273,32 @@ contract VineHelper is Ownable{
         uint256 len = IVineRouter02(vineRouter)
             .getUserJoinGroup(user, pageIndex)
             .length;
-        uint256[] memory newMarketIdList = new uint256[](len);
+        userJoinIds = new uint256[](len);
         marketInfoList = new IGovernance.MarketInfo[](len);
         stateList = new MarketState[](len);
         strategyInfoList = new IVineAaveV3LendMain02.strategyInfo[](len);
         userSupplyAmountList = new uint64[](len);
         userFinallyAmountList = new uint256[](len);
         for (uint256 i; i < len; i++) {
-            newMarketIdList[i] = IVineRouter02(vineRouter)
+            userJoinIds[i] = IVineRouter02(vineRouter)
                 .getUserJoinGroup(user, pageIndex)[i];
-            marketInfoList[i] = _getMarketInfo(newMarketIdList[i]);
+            marketInfoList[i] = _getMarketInfo(userJoinIds[i]);
             if (marketInfoList[i].coreLendMarket == address(0)) {
                 stateList[i] = MarketState.Blacklist;
                 userSupplyAmountList[i] = 0;
                 userFinallyAmountList[i] = 0;
             } else {
                 stateList[i] = _getMarketState(
-                    newMarketIdList[i],
+                    userJoinIds[i],
                     marketInfoList[i],
                     marketInfoList[i].coreLendMarket
                 );
                 strategyInfoList[i] = getStrategyInfo(
-                    newMarketIdList[i],
+                    userJoinIds[i],
                     marketInfoList[i].coreLendMarket
                 );
                 userSupplyAmountList[i] = _getUserSupplyToHookAmount(
-                    newMarketIdList[i],
+                    userJoinIds[i],
                     marketInfoList[i].coreLendMarket,
                     user
                 );
@@ -298,7 +308,7 @@ contract VineHelper is Ownable{
                     marketInfoList[i].coreLendMarket,
                     marketInfoList[i].vineVault,
                     user,
-                    newMarketIdList[i]
+                    userJoinIds[i]
                 );
             }
         }

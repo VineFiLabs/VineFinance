@@ -3,7 +3,6 @@ const fs = require('fs');
 
 const GovernanceABI = require("../artifacts/contracts/core/Governance.sol/Governance.json");
 const VineHookCenterABI = require("../artifacts/contracts/core/VineHookCenter.sol/VineHookCenter.json");
-const VineRouter01ABI=require("../artifacts/contracts/helper/VineRouter01.sol/VineRouter01.json");
 const VineRouter02ABI=require("../artifacts/contracts/helper/VineRouter02.sol/VineRouter02.json");
 const VineAaveV3LendMainABI=require("../artifacts/contracts/hook/aave/VineAaveV3LendMain02.sol/VineAaveV3LendMain02.json");
 const VineAaveV3LendMain02FactoryABI=require("../artifacts/contracts/hook/aave/VineAaveV3LendMain02Factory.sol/VineAaveV3LendMain02Factory.json");
@@ -11,7 +10,7 @@ const ERC20ABI=require("../artifacts/contracts/TestToken.sol/TestToken.json");
 
 const Set=require('../set.json');
 
-//router: 0x33FeCACBcd38C2D87DFA5c77Ac3656464e69eDD9
+//router: 
 async function main() {
     const [owner, manager] = await hre.ethers.getSigners();
     console.log("owner:", owner.address);
@@ -20,6 +19,8 @@ async function main() {
     const network = await provider.getNetwork();
     const chainId = network.chainId;
     console.log("Chain ID:", chainId);
+
+    const marketId = 5;
 
     let config;
     let networkName;
@@ -58,14 +59,8 @@ async function main() {
     }
 
     const Governance=new ethers.Contract(config.Deployed.Governance, GovernanceABI.abi, manager);
-    const getMarketInfo=await Governance.getMarketInfo(0n);
+    const getMarketInfo=await Governance.getMarketInfo(marketId);
     console.log("getMarketInfo:", getMarketInfo);
-
-    const getDestHook=await Governance.getDestHook(0n, 3, 0);
-    console.log("getDestHook:",getDestHook);
-
-    const getDestChainValidHooks=await Governance.getDestChainValidHooks(0n, 3);
-    console.log("getDestChainValidHooks:", getDestChainValidHooks);
 
     // const vineRouter01 = await ethers.getContractFactory("VineRouter01");
     // const VineRouter01 = await vineRouter01.deploy(avaxGovernance, avaxUSDC);
@@ -73,19 +68,22 @@ async function main() {
     // console.log("VineRouter01 Address:", VineRouter01Address);
 
     // const vineRouter02 = await ethers.getContractFactory("VineRouter02");
-    // const VineRouter02 = await vineRouter02.deploy(config.Deployed.Governance, config.USDC);
+    // const VineRouter02 = await vineRouter02.deploy(config.Deployed.Governance, config.Deployed.VineConfig1);
     // const VineRouter02Address = await VineRouter02.target;
     // console.log("VineRouter02 Address:", VineRouter02Address);
 
-    // const VineRouter01Address="0x33FeCACBcd38C2D87DFA5c77Ac3656464e69eDD9";
+    // const VineRouter01Address="";
     // const VineRouter01=new ethers.Contract(VineRouter01Address, VineRouter01ABI.abi, owner);
 
-    const VineRouter02Address="0x534D0e7eC92524338735952863c874f9Cc810492";
+    const VineRouter02Address="0xBdc50f0c068cdD4F57Ad99aC41979E2beE98eF73";
     const VineRouter02=new ethers.Contract(VineRouter02Address, VineRouter02ABI.abi, owner);
     config.Deployed.VineRouter02 = VineRouter02Address;
 
-    const VineAaveV3LendMain02Factory=new ethers.Contract(config.Deployed.VineAaveV3LendMain02Factory, VineAaveV3LendMain02FactoryABI.abi, owner);
-    const market = await VineAaveV3LendMain02Factory.getUserIdToHook(2n);
+    const getCuratorId = await Governance.getCuratorId(manager.address)
+    console.log("getCuratorId:", getCuratorId);
+
+    // const VineAaveV3LendMain02Factory=new ethers.Contract(config.Deployed.VineAaveV3LendMain02Factory, VineAaveV3LendMain02FactoryABI.abi, owner);
+    const market = getMarketInfo[7];
     console.log("Market:", market);
 
     const ERC20Contract=new ethers.Contract(config.USDC, ERC20ABI.abi, owner);
@@ -95,49 +93,36 @@ async function main() {
         const approveERC20=await ERC20Contract.approve(VineRouter02Address, 100000000000n);
         await approveERC20.wait();
         console.log("approve erc20 success");
-    };
+    }else{
+      console.log("Not approve");
+    }
 
     const deposite=await VineRouter02.deposite(
+        marketId,
+        0,
         2000000n,  //1 usdc
-        market,
-        config.AavePool
+        market
     );
     const depositeTx=await deposite.wait();
     console.log("deposite success:", depositeTx.hash);
 
-    const getUserShareTokenBalance=await VineRouter02.getUserTokenBalance(market, owner.address);
-    console.log("getUserShareTokenBalance:", getUserShareTokenBalance);
-
-    const getUserSupplyToHookAmount=await VineRouter02.getUserSupplyToHookAmount(market, owner.address);
-    console.log("getUserSupplyToHookAmount:", getUserSupplyToHookAmount);
-
-    const getMarketTotalSupply=await VineRouter02.getMarketTotalSupply(market);
-    console.log("getMarketTotalSupply:", getMarketTotalSupply);
-
-    const getMarketTotalDepositeAmount=await VineRouter02.getMarketTotalDepositeAmount(market);
-    console.log("getMarketTotalDepositeAmount:", getMarketTotalDepositeAmount);
-
-    // const getUserFinallyAmount=await VineRouter02.getUserFinallyAmount(1n, VineRouter01Address);
-    // console.log("getUserFinallyAmount:", getUserFinallyAmount);
-
-    // const getFeeData=await VineRouter01.getFeeData(1n);
-    // console.log("getFeeData:", getFeeData);
+    // const getUserShareTokenBalance=await VineRouter02.getUserTokenBalance(market[1], owner.address);
+    // console.log("getUserShareTokenBalance:", getUserShareTokenBalance);
 
     // const transferUsdc = await ERC20Contract.transfer(market, 1000000n);  //1 usdc
     // await transferUsdc.wait();
     // console.log("transferUsdc success");
 
-    const managerMarketContract = new ethers.Contract(market, VineAaveV3LendMainABI.abi, manager);
-    const marketContract = new ethers.Contract(market, VineAaveV3LendMainABI.abi, owner);
+    // const marketContract = new ethers.Contract(market[1], VineAaveV3LendMainABI.abi, owner);
 
     // const deposite=await marketContract.deposite(
-    //     10000n,
-    //     avaxUSDC,
-    //     aavePool,
+    //     0,
+    //     0,
+    //     20000n,
     //     owner.address
     // );
     // const depositeTx=await deposite.wait();
-    // console.log("deposite success:", depositeTx);
+    // console.log("deposite success:", depositeTx.hash);
 
     // //update
     // const updateFinallyAmount=await managerMarketContract.updateFinallyAmount(arbUSDC);

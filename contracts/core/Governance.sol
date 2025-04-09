@@ -1,40 +1,46 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.23;
 import "wormhole-solidity-sdk/interfaces/IWormholeRelayer.sol";
 import "wormhole-solidity-sdk/interfaces/IWormholeReceiver.sol";
+
 import {IGovernance} from "../interfaces/core/IGovernance.sol";
+import {IVineVaultCoreFactory} from "../interfaces/core/IVineVaultCoreFactory.sol";
+import {IVineVaultCore} from "../interfaces/core/IVineVaultCore.sol";
 import {IERC20} from "../interfaces/IERC20.sol";
 
 /// @title Governance
-/// @author Vinelabs(https://github.com/VineFiLabs)
-/// @notice VineFinance Main Market core contract
+/// @author VineLabs member 0xlive(https://github.com/VineFiLabs)
+/// @notice VineFinance Governance
 /// @dev Used for official configuration and curator registration and initialization
 contract Governance is IGovernance {
     uint256 public ID;
+    
     IWormholeRelayer public wormholeRelayer;
 
     bytes1 private immutable ZEROBYTES1;
     bytes1 private immutable ONEBYTES1=0x01;
     bytes32 private immutable ZEROBYTES32;
+
     uint16 public protocolFee = 1000; ///  fee rate = protocolFee / 10000
+    uint64 public curatorId;
     address public owner;
     address public manager;
-    address public feeManager;
     address public Caller;
     address public protocolFeeReceiver;
+    address public vineVaultFactory;
+    address public currentRewardPool;
+    address public vineConfig;
     address private l2Encode;
 
     constructor(
         address _owner, 
         address _manager, 
-        address _feeManager, 
         address _caller, 
         address _wormholeRelayer
     )
     {
         owner = _owner;
         manager = _manager;
-        feeManager = _feeManager;
         Caller = _caller;
         wormholeRelayer = IWormholeRelayer(_wormholeRelayer);
     }
@@ -44,9 +50,12 @@ contract Governance is IGovernance {
     mapping(uint8 => address) public crossCenterGroup;
     
     mapping(uint256 => MarketInfo) private IdToMarketInfo;
-    mapping(address => uint256) private CuratorToId;
-    mapping(address => bytes1) public RegisterState;
     mapping(uint256 => bytes1) public InitializeState;
+
+
+    mapping(uint64 => address) public curatorIdToCurator;
+    mapping(address => CuratorInfo) private curatorInfo;
+    mapping(uint256 => IdValidHooksInfo) private idToHooksInfo;
 
     modifier onlyOwner() {
         _checkOwner();
@@ -63,7 +72,10 @@ contract Governance is IGovernance {
         _;
     }
 
-    mapping(uint256 => IdValidHooksInfo) private idToHooksInfo;
+    modifier onlyCurator(uint256 id) {
+        _checkOwnerById(id);
+        _;
+    }
 
     function changeOwner(address _newOwner) external onlyOwner {
         address oldOwner = owner;
@@ -81,12 +93,6 @@ contract Governance is IGovernance {
         address oldCaller = Caller;
         Caller = _newCaller;
         emit UpdateCaller(oldCaller, _newCaller);
-    }
-
-    function changeFeeManager(address _newFeeManager) external onlyOwner {
-        address oldFeeManager = feeManager;
-        feeManager = _newFeeManager;
-        emit UpdateFeeManager(oldFeeManager, _newFeeManager);
     }
 
     function changeProtocolFeeReceiver(
@@ -107,127 +113,223 @@ contract Governance is IGovernance {
         emit UpdateProtocolFee(oldProtocolFee, _newProtocolFee);
     }
 
-    function changeCrossCenter(uint8 _index, address _crossCenter) external onlyManager{
+    function changeCrossCenter(uint8 _index, address _crossCenter) external onlyOwner {
         crossCenterGroup[_index] = _crossCenter;
         emit UpdateCrossCenter(_index, _crossCenter);
     }
 
-    function changeL2Encode(address _l2Encode) external onlyManager{
+    function setVineConfig(address _rewardPool, address _vineVaultFactory, address _vineConfig) external onlyOwner {
+        vineVaultFactory = _vineVaultFactory;
+        currentRewardPool = _rewardPool;
+        vineConfig = _vineConfig;
+    }
+
+    function changeL2Encode(address _l2Encode) external onlyManager {
         l2Encode = _l2Encode;
     }
 
+    /**
+    * @notice VineLabs The administrator configures valid token groups in batches
+    * @param tokens Token group
+    * @param status Hook status, 0x00 valid, otherwise invalid
+    */
     function batchSetValidTokens(
         address[] calldata tokens,
-        bytes1[] calldata states
+        bytes1[] calldata status
     ) external onlyManager {
         unchecked{
             for (uint256 i; i < tokens.length; i++) {
-                ValidToken[tokens[i]] = states[i];
+                ValidToken[tokens[i]] = status[i];
             }
         }
     }
 
+    /**
+    * @notice The VineLabs administrator sets the state of the created hooks in batches
+    * @param hooks The Hook array of bytes32
+    * @param status Hook status, 0x00 valid, otherwise invalid
+    */
     function batchSetBlacklists(
         bytes32[] calldata hooks,
-        bytes1[] calldata states
+        bytes1[] calldata status
     ) external onlyManager {
         unchecked {
             for(uint256 i; i< hooks.length; i++){
-                Blacklist[hooks[i]] = states[i];
-                emit SetBlacklist(hooks[i], states[i]);
+                Blacklist[hooks[i]] = status[i];
+                emit SetBlacklist(hooks[i], status[i]);
             }
         }
-    }
-    
-    function batchSetValidHooks(
-        uint32 destinationDomain,
-        bytes32[] calldata hooks
-    ) external {
-        address currentUser = msg.sender;
-        uint256 id = _getValidOwnerId(currentUser);
-        require(hooks.length <= 5);
-        if(currentUser != IdToMarketInfo[id].curator){
-            revert InvalidAddress("Invalid address");
-        }
-        require(idToHooksInfo[id].destHooks[destinationDomain].state == ZEROBYTES1, "Already set this chain");
-        unchecked{
-            for (uint8 i; i < hooks.length; i++) {
-                idToHooksInfo[id].destHooks[destinationDomain].hooks.push(hooks[i]);
-            }
-        }
-        idToHooksInfo[id].domains.push(destinationDomain);
-        idToHooksInfo[id].destHooks[destinationDomain].state = 0x01;
     }
 
-    function skim(address token) external onlyManager{
+    /**
+    * @notice VineLabs The administrator change the current cctp domain of a VineVault
+    * @param vineVault The Hook array of bytes32
+    * @param newDomain Hook status, 0x00 valid, otherwise invalid
+    */
+    function changeVineVaultDomain(address vineVault, uint32 newDomain) external onlyManager{
+        IVineVaultCore(vineVault).changeDomain(newDomain);
+    }
+
+    /**
+    * @notice The VineLabs administrator cleans the Governance token to the protocol receiver address
+    * @param token token to be cleared
+    */
+    function skim(address token) external onlyManager {
         uint256 balance = IERC20(token).balanceOf(address(this));
         IERC20(token).transfer(protocolFeeReceiver, balance);
     }
     
+    /**
+    * @notice VineLabs' caller countermeasure curator for review, false means invalid
+    * @param id The market ID belonging to this main market
+    * @param state The market ID status
+    */
     function examine(uint256 id, bool state) external onlyCaller {
         IdToMarketInfo[id].validState = state;
         emit ExamineID(id, state);
     }
 
-    //Register become a curator
+    /**
+    * @notice Anyone can register as a curator while creating a VineVault of the policy
+    * Note The thisFeeReceiver of RegisterParams cannot be zero address
+    * Note Curatorial fees require <50% of revenue, eg: 1000 = 10%
+    * Note A maximum of six CCTP domain can be selected
+    * Note RegisterParams min bufferTime > 1 days, min endTime  >= bufferTime + 1 days,
+    * eg: min bufferTime = 86401, endTime = 172801
+    * @param params Registers the incoming RegisterParams struct
+    */
     function register(
-        uint8 _crossCenterIndex,
-        uint16 _feeRate, 
-        uint64 _bufferTime, 
-        uint64 _endTime, 
-        address _feeReceiver
+        RegisterParams calldata params
     ) external {
         address currentUser = msg.sender; 
-        address _protocolFeeReceiver;
-        address crossCenter = crossCenterGroup[_crossCenterIndex];
-        require(RegisterState[currentUser] == ZEROBYTES1, "Already register");
-        require(_feeReceiver != address(0)  && crossCenter != address(0), "Zero address");
-        require(_feeRate <= 5000, "Invalid fee rate");
+        address thisProtocolFeeReceiver;
+        address crossCenter = crossCenterGroup[params.crossCenterIndex];
+        require(
+            params.thisFeeReceiver != address(0) && 
+            crossCenter != address(0) && 
+            vineConfig != address(0) &&
+            currentRewardPool != address(0), "Zero address");
+        require(params.feeRate <= 5000, "Invalid fee rate");
+        require(params.chooseDomains.length < 7, "Domains need < 7");  //max chains = 6 
         uint64 currentTime = uint64(block.timestamp);
-        uint64 bufferTime =  _bufferTime + currentTime;
-        uint64 endTime = _endTime + currentTime;
-        uint64 bufferLimit = bufferTime + 1 days;
-        require(_bufferTime > 3600 && endTime >= bufferLimit, "Invalid time");
+        uint64 thisBufferTime =  params.bufferTime + currentTime;
+        uint64 thisEndTime = params.endTime + currentTime;
+        uint64 bufferLimit = thisBufferTime + 1 days;
+        require(params.bufferTime > 1 days && thisEndTime >= bufferLimit, "Invalid time");
         if(protocolFeeReceiver == address(0)){
-            _protocolFeeReceiver = address(this);
+            thisProtocolFeeReceiver = address(this);
         }else{
-            _protocolFeeReceiver = protocolFeeReceiver;
+            thisProtocolFeeReceiver = protocolFeeReceiver;
+        }
+        address vineVaultAddress = IVineVaultCoreFactory(vineVaultFactory).createMarket(
+            params.domain,
+            ID, 
+            params.tokenName, 
+            params.tokenSymbol
+        );
+        if(curatorInfo[currentUser].state == ZEROBYTES1){
+            curatorInfo[currentUser].state = ONEBYTES1;
+            curatorInfo[currentUser].userId = curatorId;
+            curatorIdToCurator[curatorId] = currentUser;
+            curatorId++;
         }
         IdToMarketInfo[ID] = MarketInfo({
             validState: true,
-            curatorFee: _feeRate,
+            curatorFee: params.feeRate,
             protocolFee: protocolFee,
-            bufferTime: bufferTime,
-            endTime: endTime,
+            domain: params.domain,
+            bufferTime: thisBufferTime,
+            endTime: thisEndTime,
+            userId: curatorInfo[currentUser].userId,
             coreLendMarket: address(0),
+            vineVault: vineVaultAddress,
             crossCenter: crossCenter,
-            feeReceiver: _feeReceiver,
-            protocolFeeReceiver: _protocolFeeReceiver,
+            rewardPool: currentRewardPool,
+            vineConfigAddress: vineConfig,
+            feeReceiver: params.thisFeeReceiver,
+            protocolFeeReceiver: thisProtocolFeeReceiver,
             curator: currentUser
         });
-        CuratorToId[currentUser] = ID;
-        RegisterState[currentUser] = ONEBYTES1;
-        ID++;
+        curatorInfo[currentUser].marketIds.push(ID);
+        for(uint256 i; i<params.chooseDomains.length; i++){
+            idToHooksInfo[ID].domains.push(params.chooseDomains[i]);
+        }
         emit CreateID(ID, currentUser);
+        ID++;
+        require(vineVaultAddress != address(0));
     }
 
-    function initialize(address coreLendMarket) external{
-        uint256 id = _getValidOwnerId(msg.sender);
+    /**
+    * @notice The curator sets personal policies for Hooks and vaults
+    * Note The current chain also needs to be configured with corresponding information
+    * @param id The market ID belonging to this main market
+    * @param destinationDomain cctp domain of the target chain
+    * @param vault VineVault of the target chain bytes32
+    * @param hooks The bytes32 array of the hook of the target chain
+    */
+    function batchSetValidHooks(
+        uint256 id,
+        uint32 destinationDomain,
+        bytes32 vault,
+        bytes32[] calldata hooks
+    ) external onlyCurator(id) {
+        require(hooks.length < 7);
+        require(idToHooksInfo[id].destHooks[destinationDomain].state == ZEROBYTES1, "Already set this chain");
+        bool state;
+        unchecked{
+            for(uint256 i; i<idToHooksInfo[id].domains.length; i++){
+                if(destinationDomain == idToHooksInfo[id].domains[i]){
+                    state = true;
+                }
+            }
+        }
+        if(state){
+            unchecked{
+                for (uint256 j; j < hooks.length; j++) {
+                    idToHooksInfo[id].destHooks[destinationDomain].hooks.push(hooks[j]);
+                }
+            }
+            idToHooksInfo[id].destHooks[destinationDomain].vault = vault;
+            idToHooksInfo[id].destHooks[destinationDomain].state = ONEBYTES1;
+        }else{
+            revert ("Invalid destinationDomain");
+        }
+    }
+
+    /**
+    * @notice The curator or VineLabs administrator initiates the core market contract for a market
+    * Note This command can be executed only once
+    * @param id The market ID belonging to this main market
+    * @param coreLendMarket Core market contract address
+    */
+    function initialize(uint256 id, address coreLendMarket) external {
+        require(msg.sender == IdToMarketInfo[id].curator || msg.sender ==  manager, "Not operator");
         require(InitializeState[id] == ZEROBYTES1, "Already initialize");
         IdToMarketInfo[id].coreLendMarket = coreLendMarket;
         InitializeState[id] = ONEBYTES1;
         emit Initialize(msg.sender, coreLendMarket);
     }
 
-    function curatorChangeFeeReceiver(address _feeReceiver) external {
-        uint256 id = _getValidOwnerId(msg.sender);
+    /**
+    * @notice The curator changes the fee recipient address of the marketplace he creates
+    * @param id The market ID belonging to this main market
+    * @param curatorFeeReceiver Fee recipient
+    */
+    function curatorChangeFeeReceiver(uint256 id, address curatorFeeReceiver) external onlyCurator(id) {
         if(IdToMarketInfo[id].feeReceiver == address(0)){
             revert InvalidAddress("Invalid address");
         }
-        IdToMarketInfo[id].feeReceiver = _feeReceiver;
-        emit CuratorChangeFeeReceiver(msg.sender, _feeReceiver);
+        IdToMarketInfo[id].feeReceiver = curatorFeeReceiver;
+        emit CuratorChangeFeeReceiver(msg.sender, curatorFeeReceiver);
     }
 
+    /**
+    * @notice Retrieves the cost of delivering cross-chain information to the target chain using wormhole
+    * @param targetChain wormhole Target chain id
+    * @param gasLimit The gaslimit required for execution of the target chain
+    * Note Set the gasLimit as large as possible, 500000 is recommended
+    * @return cost the cost of the wormhole
+    */
     function quoteCrossChainCost(
         uint16 targetChain,
         uint32 gasLimit
@@ -239,7 +341,15 @@ contract Governance is IGovernance {
         );
     }
 
-    //emergency
+    /**
+    * @notice In the event of an emergency for a policy, anyone can send emergency information to the target chain, 
+    * perform extraction and cross the chain to the main market VineVault
+    * @param targetChain wormhole Target chain id
+    * @param gasLimit The gaslimit required for execution of the target chain
+    * Note Set the gasLimit as large as possible, 500000 is recommended
+    * @param targetAddress The Hook address of the policy of the target chain
+    * @param id The market ID belonging to this main market
+    */
     function sendMessage(
         uint16 targetChain,
         uint32 gasLimit,
@@ -250,7 +360,7 @@ contract Governance is IGovernance {
         uint256 cost = quoteCrossChainCost(targetChain, gasLimit);
         uint256 emergencyTime = uint256(IdToMarketInfo[id].endTime) + 12 hours;
         bytes memory payload = abi.encode(id, emergencyTime);
-        require(msg.value == cost,"Insufficient eth");
+        require(msg.value >= cost,"Insufficient eth");
 
         wormholeRelayer.sendPayloadToEvm{value: cost}(
             targetChain,
@@ -262,33 +372,78 @@ contract Governance is IGovernance {
     }
 
     function _checkOwner() private view {
-        require(msg.sender == owner, "Non owner");
+        require(msg.sender == owner);
     }
 
     function _checkManager() private view {
-        require(msg.sender == manager, "Non manager");
+        require(msg.sender == manager);
     }
 
     function _checkCaller() private view {
-        require(msg.sender == Caller, "Non caller");
+        require(msg.sender == Caller);
     }
 
-    function _getValidOwnerId(address curator) private view returns(uint256){
-        uint256 id = CuratorToId[curator];
-        require(curator == IdToMarketInfo[id].curator, "Not this curator");
-        return id;
+    function _checkOwnerById(uint256 id) private view {
+        require(msg.sender == IdToMarketInfo[id].curator, "Not this curator");
     }
 
-    function getCuratorToId(address curator) external view returns (uint256) {
-        uint256 id = _getValidOwnerId(curator);
-        return id;
+    /**
+    * @notice Get the curator id
+    * @param user Curator address
+    * @return  thisCuratorId The id of the curator
+    */    
+    function getCuratorId(address user) external view returns(uint64 thisCuratorId) {
+        if(curatorInfo[user].state == ONEBYTES1){
+            thisCuratorId = curatorInfo[user].userId;
+        }else {
+            revert ("Invalid curatorId");
+        }
     }
 
+    /**
+    * @notice Get the length of all market ids created by the curator
+    * @param user Curator address
+    * @return len All market ids length
+    */ 
+    function getCuratorMarketIdsLength(address user) external view returns(uint256 len) {
+        len =  curatorInfo[user].marketIds.length;
+    }
+
+    /**
+    * @notice Get the curator's newly created market id
+    * @param user Curator address
+    * @return id of the newly created marketplace
+    */ 
+    function getCuratorLastId(address user) external view returns(uint256 id) {
+        uint256 len = curatorInfo[user].marketIds.length;
+        if(len > 0){
+            id =curatorInfo[user].marketIds[len - 1];
+        }else{
+            revert ("Not registered");
+        }
+    }
+
+    /**
+    * @notice Index the market id created by the curator
+    * @param user Curator address
+    * @param index Created market id index
+    * @return id Market id
+    */ 
+    function indexCuratorToId(address user, uint256 index) external view returns(uint256 id) {
+        id = curatorInfo[user].marketIds[index];
+    }
     function getL2Encode() external view returns(address){
         return l2Encode;
     }
 
-    function getDestHook(uint256 id, uint32 destinationDomain, uint8 index) external view returns(bytes32 hook){
+    /**
+    * @notice Get the hook of the target chain
+    * @param id The market ID belonging to this main market
+    * @param destinationDomain cctp domain of the target chain
+    * @param index Target chain hooks index
+    * @return hook Get the bytes32 hook of the target chain
+    */ 
+    function getDestHook(uint256 id, uint32 destinationDomain, uint8 index) external view returns(bytes32 hook) {
         require(IdToMarketInfo[id].validState, "Invalid id");
         bytes32 thisHook = idToHooksInfo[id].destHooks[destinationDomain].hooks[index];
         require(Blacklist[thisHook] == ZEROBYTES1, "Blacklist");
@@ -299,19 +454,58 @@ contract Governance is IGovernance {
         }
     }
 
-    function getDestChainValidHooks(uint256 id, uint32 destinationDomain)external view returns(ValidHooksInfo memory){
+    /**
+    * @notice Get the vault of the target chain
+    * @param id The market ID belonging to this main market
+    * @param destinationDomain cctp domain of the target chain
+    * @return destVault Get the bytes32 vault of the target chain
+    */ 
+    function getDestVault(uint256 id, uint32 destinationDomain) external view returns(bytes32 destVault){
+        require(IdToMarketInfo[id].validState, "Invalid id");
+        bytes32 thisVault = idToHooksInfo[id].destHooks[destinationDomain].vault;
+        if(thisVault == ZEROBYTES32){
+            revert ("Invalid vault");
+        }else{
+            destVault = thisVault;
+        }
+    }
+
+    /**
+    * @notice Get all valid hook groups for bytes32 of the target chain
+    * @param id The market ID belonging to this main market
+    * @param destinationDomain cctp domain of the target chain
+    * @return All valid ValidHooksInfo groups for bytes32 of the target chain
+    */ 
+    function getDestChainValidHooks(uint256 id, uint32 destinationDomain) external view returns(ValidHooksInfo memory) {
         return idToHooksInfo[id].destHooks[destinationDomain];
     }
 
-    function getDestChainValidHooksLength(uint256 id, uint32 destinationDomain)public view returns(uint256){
+    /**
+    * @notice Get the length of the effective hook group of the target chain
+    * @param id The market ID belonging to this main market
+    * @param destinationDomain cctp domain of the target chain
+    * @return Length of the effective hook group of the target chain
+    */
+    function getDestChainValidHooksLength(uint256 id, uint32 destinationDomain) public view returns(uint256) {
         return idToHooksInfo[id].destHooks[destinationDomain].hooks.length;
     }
 
-    function getDestChainHooksState(uint256 id, uint32 destinationDomain)external view returns(bytes1){
+    /**
+    * @notice Get the state of the valid hook group of the target chain
+    * @param id The market ID belonging to this main market
+    * @param destinationDomain cctp domain of the target chain
+    * @return The state of the hook group of the target chain, 0x01 is valid, otherwise invalid
+    */
+    function getDestChainHooksState(uint256 id, uint32 destinationDomain) external view returns(bytes1) {
         return idToHooksInfo[id].destHooks[destinationDomain].state;
     }
 
-    function getIdAllDomains(uint256 id)external view returns(uint256[] memory allDomains){
+    /**
+    * @notice Get the market id for all cctp domains
+    * @param id The market ID belonging to this main market
+    * @return allDomains Market id for all cctp domains
+    */
+    function getIdAllDomains(uint256 id) external view returns(uint256[] memory allDomains) {
         uint256 len = idToHooksInfo[id].domains.length;
         allDomains = new uint256[](len);
         unchecked {
@@ -321,6 +515,11 @@ contract Governance is IGovernance {
         }
     }
 
+    /**
+    * @notice Get the market id information
+    * @param id The market ID belonging to this main market
+    * @return MarketInfo struct
+    */
     function getMarketInfo(
         uint256 id
     ) external view returns (MarketInfo memory) {
