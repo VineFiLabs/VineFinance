@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0
 // OpenZeppelin Contracts (last updated v5.2.0) (utils/Address.sol)
 
 pragma solidity ^0.8.20;
