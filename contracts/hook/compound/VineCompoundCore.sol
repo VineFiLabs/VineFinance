@@ -2,6 +2,7 @@
 pragma solidity ^0.8.23;
 import {ISharer} from "../../interfaces/ISharer.sol";
 import {IVineEvent} from "../../interfaces/IVineEvent.sol";
+import {IVineStruct} from "../../interfaces/IVineStruct.sol";
 import {IVineHookErrors} from "../../interfaces/IVineHookErrors.sol";
 import {ICrossCenter} from "../../interfaces/core/ICrossCenter.sol";
 import {IVineHookCenter} from "../../interfaces/core/IVineHookCenter.sol";
@@ -23,15 +24,16 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 /// @notice Compound module
 contract VineCompoundCore is 
     IVineEvent,
+    IVineStruct,
     IVineHookErrors,
     ISharer,
     IWormholeReceiver{
     using SafeERC20 for IERC20;
 
     uint64 public curatorId;
-    address public factory;
-    address public govern;
-    address public owner;
+    address public immutable factory;
+    address public immutable govern;
+    address public immutable owner;
     address public manager;
 
     constructor(
@@ -102,37 +104,40 @@ contract VineCompoundCore is
              ICometRewards(rewardsContract).claim,
             (cometAddress, rewardProxyReceiver, true)
         );
-        require(IVineVault(vineVault).callWay(
+
+        (bool state, ) = IVineVault(vineVault).callWay(
             0,
             address(0),
             cometAddress,
             0,
             payload
-        ), "Claim fail");
+        );
+        require(state, "Claim fail");
     }
 
     function crossUSDC(
-        uint256 id,
-        uint8 indexConfig,
-        uint32 destinationDomain,
-        uint64 inputBlock,
-        uint256 amount
+        CrossUSDCParams calldata params
     ) external {
-        _checkValidId(id);
-        _checkOperator(id);
-        address usdc = _getVineConfig(indexConfig, id).mainToken;
-        bytes32 destVault = _getValidVault(id, destinationDomain);
-        address crossCenter = _getMarketInfo(id).crossCenter;
-        address currentVault = _getMarketInfo(id).vineVault;
-        require(_bytes32ToAddress(destVault) != currentVault, "Invalid destinationDomain");
-        require(IVineVault(currentVault).callVault(usdc, amount), "call vault fail");
-        IERC20(usdc).approve(crossCenter, amount);
-        ICrossCenter(crossCenter).crossUSDC(
-            destinationDomain,
-            inputBlock,
-            destVault,
-            amount
-        );
+        _checkValidId(params.id);
+        _checkOperator(params.id);
+        address usdc = _getVineConfig(params.indexConfig, params.id).mainToken;
+        bytes32 bytes32DestVault = _getValidVault(params.id, params.destinationDomain);
+        address destVault = _bytes32ToAddress(bytes32DestVault);
+        address crossCenter = _getMarketInfo(params.id).crossCenter;
+        address currentVault = _getMarketInfo(params.id).vineVault;
+        require(destVault != currentVault && destVault != address(0), "Invalid destinationDomain");
+        IVineVault(currentVault).callVault(usdc, params.amount);
+        if(params.sameChain){
+            IERC20(usdc).safeTransfer(destVault, params.amount);
+        }else {
+            IERC20(usdc).approve(crossCenter, params.amount);
+            ICrossCenter(crossCenter).crossUSDC(
+                params.destinationDomain,
+                params.inputBlock,
+                bytes32DestVault,
+                params.amount
+            );
+        }
     }
 
     function receiveWormholeMessages(
@@ -174,7 +179,7 @@ contract VineCompoundCore is
             ICometMainInterface(cometAddress).supply,
             (asset, amount)
         );
-        state = IVineVault(vineVault).callWay(
+        (state, ) = IVineVault(vineVault).callWay(
             2,
             asset,
             cometAddress,
@@ -193,8 +198,8 @@ contract VineCompoundCore is
             ICometMainInterface(cometAddress).withdraw,
             (asset, amount)
         );
-        state = IVineVault(vineVault).callWay(
-            2,
+        (state, ) = IVineVault(vineVault).callWay(
+            0,
             asset,
             cometAddress,
             amount,

@@ -2,50 +2,27 @@
 pragma solidity ^0.8.23;
 
 interface IVineStruct{
+
+    struct CrossUSDCParams{
+        bool sameChain;
+        uint8 indexConfig;
+        uint32 destinationDomain;
+        uint64 inputBlock;
+        uint256 id;
+        uint256 amount;
+    }
     
-    struct strategyInfo{
+    struct StrategyInfo{
         bytes1 lockState;
         bytes1 protocolFeeState;
         uint64 depositeTotalAmount;
         uint64 finallyAmount;
+        uint64 extractedAmount;
     }
 
     struct UserSupplyInfo{
         uint64 supplyTime;
         uint64 pledgeAmount;
     }
-
-    // struct L1WithdrawAndCrossUSDCParams{
-    //     uint8 indexDestHook;
-    //     uint32 destinationDomain;
-    //     address usdcPool;
-    //     uint64 inputBlock;
-    //     address ausdc;
-    //     address usdc;
-    //     uint256 ausdcAmount;
-    // }
-    // struct ReceiveUSDCAndL1SupplyParams{
-    //     bytes message;
-    //     bytes attestation;
-    //     address usdcPool;
-    //     address usdc;
-    // }
-
-    // struct L2WithdrawAndCrossUSDCParams{
-    //     uint8 indexDestHook;
-    //     uint32 destinationDomain;
-    //     address l2Pool;
-    //     uint64 inputBlock;
-    //     address ausdc;
-    //     address usdc;
-    //     uint256 ausdcAmount;
-    // }
-    // struct ReceiveUSDCAndL2SupplyParams{
-    //     bytes message;
-    //     bytes attestation;
-    //     address usdc;
-    //     address l2Pool;
-    // }
-
 
 }

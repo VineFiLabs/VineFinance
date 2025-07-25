@@ -6,7 +6,7 @@ interface IVineVaultCore is IERC20{
 
     function changeDomain(uint32 _newDomain)external;
 
-    function callVault(address token, uint256 amount)external payable returns(bool state);
+    function callVault(address token, uint256 amount)external payable;
 
     function callWay(
         uint8 tokenType, 
@@ -14,7 +14,7 @@ interface IVineVaultCore is IERC20{
         address caller, 
         uint256 amount, 
         bytes memory data
-    )external returns(bool success);
+    )external returns(bool success, bytes memory resultData);
 
     function depositeMint(address to, uint256 amount)external returns(bytes1);
 

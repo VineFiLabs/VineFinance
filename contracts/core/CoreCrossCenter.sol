@@ -147,19 +147,16 @@ contract CoreCrossCenter is
     }
 
     function emergency(
-        uint8 indexDestHook, 
         uint32 destinationDomain, 
         uint256 id, 
         uint256 amount
     ) external onlyManager {
         uint256 usdcBalance = IERC20(usdc).balanceOf(address(this));
         require(usdcBalance > 0 && amount <= usdcBalance, "USDC amount error");
-        bytes32 bytes32Hook = IGovernance(govern).getDestHook(id, destinationDomain, indexDestHook);
-        address hook = bytes32ToAddress(bytes32Hook);
-        if(hook == address(0)){
-            revert ZeroAddress(ErrorType.ZeroAddress);
-        }
-        IERC20(usdc).transfer(hook, amount);
+        bytes32 bytes32Vault = IGovernance(govern).getDestVault(id, destinationDomain);
+        address vault = bytes32ToAddress(bytes32Vault);
+        require(vault != address(0), "Zero address");
+        IERC20(usdc).safeTransfer(vault, amount);
     }
 
     function _crossUSDC(
@@ -212,15 +209,6 @@ contract CoreCrossCenter is
         require(_ValidFactory[_factory] == ONEBYTES1, "Invalid factory");
         bool state = IFactorySharer(_factory).ValidMarket(msg.sender);
         require(state, "Invalid market");
-    }
-
-    function _protolcolFeeReceiver() private view returns (address) {
-        address protocolFeeReceiver = IGovernance(govern).protocolFeeReceiver();
-        if (protocolFeeReceiver == address(0)) {
-            return govern;
-        } else {
-            return protocolFeeReceiver;
-        }
     }
 
     function getvalidAttsetation(

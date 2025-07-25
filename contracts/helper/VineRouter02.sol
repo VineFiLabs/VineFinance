@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
 import {IGovernance} from "../interfaces/core/IGovernance.sol";
@@ -27,8 +27,12 @@ contract VineRouter02 is Ownable{
 
     event depositeEvent(address indexed user, bytes resultData);
 
-    function changeVineConfig(address _vineConfig)external onlyOwner{
+    function changeVineConfig(address _vineConfig) external onlyOwner {
         vineConfig = _vineConfig;
+    }
+
+    function changeGovern(address _Governance) external onlyOwner {
+        Governance = IGovernance(_Governance);
     }
 
     function deposite(

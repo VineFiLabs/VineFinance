@@ -5,7 +5,7 @@ interface IVineVault {
 
     function changeDomain(uint32 _newDomain)external;
 
-    function callVault(address token, uint256 amount)external payable returns(bool state);
+    function callVault(address token, uint256 amount)external payable;
 
     function callWay(
         uint8 tokenType, 
@@ -13,6 +13,6 @@ interface IVineVault {
         address caller, 
         uint256 amount, 
         bytes memory data
-    )external returns(bool success);
+    )external returns(bool success, bytes memory resultData);
     
 }

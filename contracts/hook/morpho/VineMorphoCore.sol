@@ -2,6 +2,7 @@
 pragma solidity ^0.8.23;
 
 import {IVineEvent} from "../../interfaces/IVineEvent.sol";
+import {IVineStruct} from "../../interfaces/IVineStruct.sol";
 import {IVineMorphoCore} from "../../interfaces/hook/morpho/IVineMorphoCore.sol";
 import {IVineHookErrors} from "../../interfaces/IVineHookErrors.sol";
 import {ICrossCenter} from "../../interfaces/core/ICrossCenter.sol";
@@ -22,16 +23,18 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 contract VineMorphoCore is 
     IVineMorphoCore, 
     IVineEvent, 
+    IVineStruct,
     IVineHookErrors 
 {
     using SafeERC20 for IERC20;
 
     bytes1 private immutable ONEBYTES1 = 0x01;
     uint64 public curatorId;
-    address public factory;
-    address public govern;
-    address public owner;
+    address public immutable factory;
+    address public immutable govern;
+    address public immutable owner;
     address public manager;
+    
     constructor(address _govern, address _owner, address _manager, uint64 _curatorId) {
         factory = msg.sender;
         govern = _govern;
@@ -67,11 +70,10 @@ contract VineMorphoCore is
         address USDC = _getVineConfig(indexConfig, id).mainToken;
         address morphoMarket = _getVineConfig(indexConfig, id).callee;
         address vineVault = _getMarketInfo(id).vineVault;
-        require(IVineVault(vineVault).callVault(USDC, amount), "Call vault fail");
+        IVineVault(vineVault).callVault(USDC, amount);
         IERC20(marketParams.loanToken).approve(morphoMarket, amount);
-        bytes memory data = hex"";
         (uint256 assetsSupplied, uint256 sharesSupplied) = IMorpho(morphoMarket)
-            .supply(marketParams, amount, shares, address(this), data);
+            .supply(marketParams, amount, shares, vineVault, hex"");
         IdToMorphoInfo[id].assetsSupplied += assetsSupplied;
         IdToMorphoInfo[id].sharesSupplied += sharesSupplied;
         emit MorphoSupply(msg.sender, assetsSupplied, sharesSupplied);
@@ -86,14 +88,25 @@ contract VineMorphoCore is
     ) external {
         _checkValidId(id);
         _checkOperator(id);
+        address USDC = _getVineConfig(indexConfig, id).mainToken;
         address morphoMarket = _getVineConfig(indexConfig, id).callee;
         address vineVault = _getMarketInfo(id).vineVault;
-        (uint256 amountWithdrawn, uint256 sharesWithdrawn) = IMorpho(
-            morphoMarket
-        ).withdraw(marketParams, amount, shares, address(this), vineVault);
-        IdToMorphoInfo[id].amountWithdrawn += amountWithdrawn;
-        IdToMorphoInfo[id].sharesWithdrawn += sharesWithdrawn;
-        emit MorphoWithdraw(msg.sender, amountWithdrawn, sharesWithdrawn);
+        // (uint256 amountWithdrawn, uint256 sharesWithdrawn) = IMorpho(
+        //     morphoMarket
+        // ).withdraw(marketParams, amount, shares, vineVault, vineVault);
+
+        bytes memory payload = abi.encodeCall(
+            IMorpho(morphoMarket).withdraw,
+            (marketParams, amount, shares, vineVault, vineVault)
+        );
+        (bool state, ) = IVineVault(vineVault).callWay(
+            0,
+            USDC,
+            morphoMarket,
+            amount,
+            payload
+        );
+        require(state, "Morpho withdraw fail");
     }
 
     function claimMorphoReward(
@@ -110,27 +123,28 @@ contract VineMorphoCore is
     }
 
     function crossUSDC(
-        uint256 id,
-        uint8 indexConfig,
-        uint32 destinationDomain,
-        uint64 inputBlock,
-        uint256 amount
+        CrossUSDCParams calldata params
     ) external {
-        _checkValidId(id);
-        _checkOperator(id);
-        address usdc = _getVineConfig(indexConfig, id).mainToken;
-        bytes32 destVault = _getValidVault(id, destinationDomain);
-        address crossCenter = _getMarketInfo(id).crossCenter;
-        address currentVault = _getMarketInfo(id).vineVault;
-        require(_bytes32ToAddress(destVault) != currentVault, "Invalid destinationDomain");
-        require(IVineVault(currentVault).callVault(usdc, amount), "call vault fail");
-        IERC20(usdc).approve(crossCenter, amount);
-        ICrossCenter(crossCenter).crossUSDC(
-            destinationDomain,
-            inputBlock,
-            destVault,
-            amount
-        );
+        _checkValidId(params.id);
+        _checkOperator(params.id);
+        address usdc = _getVineConfig(params.indexConfig, params.id).mainToken;
+        bytes32 bytes32DestVault = _getValidVault(params.id, params.destinationDomain);
+        address destVault = _bytes32ToAddress(bytes32DestVault);
+        address crossCenter = _getMarketInfo(params.id).crossCenter;
+        address currentVault = _getMarketInfo(params.id).vineVault;
+        require(destVault != currentVault && destVault != address(0), "Invalid destinationDomain");
+        IVineVault(currentVault).callVault(usdc, params.amount);
+        if(params.sameChain){
+            IERC20(usdc).safeTransfer(destVault, params.amount);
+        }else {
+            IERC20(usdc).approve(crossCenter, params.amount);
+            ICrossCenter(crossCenter).crossUSDC(
+                params.destinationDomain,
+                params.inputBlock,
+                bytes32DestVault,
+                params.amount
+            );
+        }
     }
 
     function receiveWormholeMessages(
@@ -157,7 +171,7 @@ contract VineMorphoCore is
     ) external {
         require(msg.sender == _officialManager());
         address vineVault = _getMarketInfo(id).vineVault;
-        if(amount >0 ){
+        if(amount > 0){
             IERC20(token).safeTransfer(vineVault, amount);
         }
     }

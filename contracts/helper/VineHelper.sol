@@ -54,7 +54,7 @@ contract VineHelper is Ownable{
         uint64 endTime = marketInfo.endTime;
         bytes32 hook = addressToBytes32(coreLengMarket);
         bytes1 blacklist = IGovernance(govern).Blacklist(hook);
-        if (blacklist == ZEROBYTES1) {
+        if (blacklist == ZEROBYTES1 && marketInfo.validState) {
             if (block.timestamp <= bufferTime) {
                 state = MarketState.InPledge;
             } else if (
@@ -116,7 +116,7 @@ contract VineHelper is Ownable{
         totalSupply = IVineVaultCore(_vineVault).totalSupply();
     }
 
-    function getStrategyInfo(uint256 _id, address _coreLendMarket) public view returns(IVineAaveV3LendMain02.strategyInfo memory newStrategyInfo){
+    function getStrategyInfo(uint256 _id, address _coreLendMarket) public view returns(IVineAaveV3LendMain02.StrategyInfo memory newStrategyInfo){
         newStrategyInfo = IVineAaveV3LendMain02(_coreLendMarket).getStrategyInfo(_id);
     }
 
@@ -206,7 +206,7 @@ contract VineHelper is Ownable{
         returns (
             IGovernance.MarketInfo[] memory marketInfoList,
             MarketState[] memory stateList,
-            IVineAaveV3LendMain02.strategyInfo[] memory strategyInfoList,
+            IVineAaveV3LendMain02.StrategyInfo[] memory strategyInfoList,
             IRewardPool.RewardTokensInfo[] memory rewardTokensInfoList,
             uint256[] memory totalSupplyList
         )
@@ -224,7 +224,7 @@ contract VineHelper is Ownable{
         }
         marketInfoList = new IGovernance.MarketInfo[](len);
         stateList = new MarketState[](len);
-        strategyInfoList = new IVineAaveV3LendMain02.strategyInfo[](len);
+        strategyInfoList = new IVineAaveV3LendMain02.StrategyInfo[](len);
         rewardTokensInfoList = new IRewardPool.RewardTokensInfo[](len);
         totalSupplyList = new uint256[](len);
         unchecked {
@@ -265,7 +265,7 @@ contract VineHelper is Ownable{
             uint256[] memory userJoinIds,
             IGovernance.MarketInfo[] memory marketInfoList,
             MarketState[] memory stateList,
-            IVineAaveV3LendMain02.strategyInfo[] memory strategyInfoList,
+            IVineAaveV3LendMain02.StrategyInfo[] memory strategyInfoList,
             uint64[] memory userSupplyAmountList,
             uint256[] memory userFinallyAmountList
         )
@@ -276,7 +276,7 @@ contract VineHelper is Ownable{
         userJoinIds = new uint256[](len);
         marketInfoList = new IGovernance.MarketInfo[](len);
         stateList = new MarketState[](len);
-        strategyInfoList = new IVineAaveV3LendMain02.strategyInfo[](len);
+        strategyInfoList = new IVineAaveV3LendMain02.StrategyInfo[](len);
         userSupplyAmountList = new uint64[](len);
         userFinallyAmountList = new uint256[](len);
         for (uint256 i; i < len; i++) {

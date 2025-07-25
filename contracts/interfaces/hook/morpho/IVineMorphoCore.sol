@@ -6,8 +6,6 @@ interface IVineMorphoCore {
     struct MorphoInfo{
         uint256 assetsSupplied; 
         uint256 sharesSupplied;
-        uint256 amountWithdrawn;
-        uint256 sharesWithdrawn;
     }
 
     event MorphoSupply(

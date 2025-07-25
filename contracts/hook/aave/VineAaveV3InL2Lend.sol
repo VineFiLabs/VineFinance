@@ -2,6 +2,7 @@
 pragma solidity ^0.8.23;
 
 import {IVineEvent} from "../../interfaces/IVineEvent.sol";
+import {IVineStruct} from "../../interfaces/IVineStruct.sol";
 import {ISharer} from "../../interfaces/ISharer.sol";
 import {IL2Pool} from "../../interfaces/aaveV3/IL2Pool.sol";
 import {IL2Encode} from "../../interfaces/aaveV3/IL2Encode.sol";
@@ -22,6 +23,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 /// @notice AaveV3 is a module in layer2
 contract VineAaveV3InL2Lend is
     IVineEvent,
+    IVineStruct,
     IVineHookErrors,
     ISharer,
     IWormholeReceiver
@@ -30,9 +32,9 @@ contract VineAaveV3InL2Lend is
 
     uint16 private referralCode;
     uint64 public curatorId;
-    address public factory;
-    address public govern;
-    address public owner;
+    address public immutable factory;
+    address public immutable govern;
+    address public immutable owner;
     address public manager;
 
     constructor(
@@ -75,15 +77,10 @@ contract VineAaveV3InL2Lend is
     ) external onlyManager {
         _checkValidId(id);
         address usdc = _getVineConfig(indexConfig, id).mainToken;
-        address ausdc = _getVineConfig(indexConfig, id).derivedToken;
         address l2Pool = _getVineConfig(indexConfig, id).callee;
         address vineVault = _getMarketInfo(id).vineVault;
-        uint256 beforeAmount = _tokenBalance(ausdc, address(this));
         emit AaveV3Supply(id, amount);
         require(_aaveSupply(vineVault, l2Pool, usdc, amount), "Supply fail");
-        uint256 afterAmount = _tokenBalance(ausdc, address(this));
-        uint256 skimAmount = afterAmount - beforeAmount;
-        _skim(ausdc, vineVault, skimAmount);
     }
 
     function inL2Withdraw(
@@ -97,36 +94,33 @@ contract VineAaveV3InL2Lend is
         address ausdc = _getVineConfig(indexConfig, id).derivedToken;
         address l2Pool = _getVineConfig(indexConfig, id).callee;
         address vineVault = _getMarketInfo(id).vineVault;
-        uint256 beforeAmount = _tokenBalance(usdc, address(this));
         emit AaveV3Withdraw(id, ausdcAmount);
-        require(_aaveWithdraw(vineVault, l2Pool, ausdc, ausdcAmount), "Withdraw fail");
-        uint256 afterAmount = _tokenBalance(usdc, address(this));
-        uint256 skimAmount = afterAmount - beforeAmount;
-        _skim(usdc, vineVault, skimAmount);
+        require(_aaveWithdraw(vineVault, l2Pool, ausdc, usdc, ausdcAmount), "Withdraw fail");
     }
 
     function crossUSDC(
-        uint256 id,
-        uint8 indexConfig,
-        uint32 destinationDomain,
-        uint64 inputBlock,
-        uint256 amount
+        CrossUSDCParams calldata params
     ) external {
-        _checkValidId(id);
-        _checkOperator(id);
-        address usdc = _getVineConfig(indexConfig, id).mainToken;
-        bytes32 destVault = _getValidVault(id, destinationDomain);
-        address crossCenter = _getMarketInfo(id).crossCenter;
-        address currentVault = _getMarketInfo(id).vineVault;
-        require(_bytes32ToAddress(destVault) != currentVault, "Invalid destinationDomain");
-        require(IVineVault(currentVault).callVault(usdc, amount), "call vault fail");
-        IERC20(usdc).approve(crossCenter, amount);
-        ICrossCenter(crossCenter).crossUSDC(
-            destinationDomain,
-            inputBlock,
-            destVault,
-            amount
-        );
+        _checkValidId(params.id);
+        _checkOperator(params.id);
+        address usdc = _getVineConfig(params.indexConfig, params.id).mainToken;
+        bytes32 bytes32DestVault = _getValidVault(params.id, params.destinationDomain);
+        address destVault = _bytes32ToAddress(bytes32DestVault);
+        address crossCenter = _getMarketInfo(params.id).crossCenter;
+        address currentVault = _getMarketInfo(params.id).vineVault;
+        require(destVault != currentVault && destVault != address(0), "Invalid destinationDomain");
+        IVineVault(currentVault).callVault(usdc, params.amount);
+        if(params.sameChain){
+            IERC20(usdc).safeTransfer(destVault, params.amount);
+        }else {
+            IERC20(usdc).approve(crossCenter, params.amount);
+            ICrossCenter(crossCenter).crossUSDC(
+                params.destinationDomain,
+                params.inputBlock,
+                bytes32DestVault,
+                params.amount
+            );
+        }
     }
 
     function receiveWormholeMessages(
@@ -172,7 +166,7 @@ contract VineAaveV3InL2Lend is
             IL2Pool(l2Pool).supply,
             (encodeMessage)
         );
-        state = IVineVault(vineVault).callWay(
+        (state, ) = IVineVault(vineVault).callWay(
             2,
             usdc,
             l2Pool,
@@ -185,11 +179,12 @@ contract VineAaveV3InL2Lend is
         address vineVault,
         address l2Pool,
         address ausdc,
+        address usdc,
         uint256 amount
     ) private returns (bool state) {
         address l2Encode = _getL2Encode();
         bytes32 encodeMessage = IL2Encode(l2Encode).encodeWithdrawParams(
-            ausdc,
+            usdc,
             amount
         );
 
@@ -197,7 +192,7 @@ contract VineAaveV3InL2Lend is
              IL2Pool(l2Pool).withdraw,
             (encodeMessage)
         );
-        state = IVineVault(vineVault).callWay(
+        (state, ) = IVineVault(vineVault).callWay(
             2,
             ausdc,
             l2Pool,

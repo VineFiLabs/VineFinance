@@ -14,8 +14,8 @@ contract VineVaultCore is ShareToken{
     
     bytes1 private immutable ONEBYTES1 = 0x01;
     uint32 public currentDomain;
-    address public govern;
-    uint256 public currentId;
+    address public immutable govern;
+    uint256 public immutable currentId;
     constructor(
         uint32 _domain,
         address _govern,
@@ -63,14 +63,16 @@ contract VineVaultCore is ShareToken{
         emit NewDomain(_newDomain);
     }
 
-    function callVault(address token, uint256 amount)external onlyValidCaller returns(bool state){
-        if(token == address(0)){
-            (state, ) = msg.sender.call{value: amount}("");
-            require(address(this).balance >=amount, "Insufficient quantity");
-        }else{
-            require(IERC20(token).balanceOf(address(this)) >=amount, "Insufficient quantity");
-            IERC20(token).safeTransfer(msg.sender, amount);
-            state = true;
+    function callVault(address token, uint256 amount)external onlyValidCaller {
+        if(amount > 0){
+            if(token == address(0)){
+                require(address(this).balance >=amount, "Insufficient quantity");
+                (bool state, ) = msg.sender.call{value: amount}("");
+                require(state, "Call eth fail");
+            }else{
+                require(IERC20(token).balanceOf(address(this)) >= amount, "Insufficient quantity");
+                IERC20(token).safeTransfer(msg.sender, amount);
+            }
         }
         emit CallVault(msg.sender, token, amount);
     }
@@ -81,16 +83,18 @@ contract VineVaultCore is ShareToken{
         address caller, 
         uint256 amount, 
         bytes memory data
-    )external onlyValidCaller returns(bool success){
+    )external onlyValidCaller returns(bool success, bytes memory resultData){
         if(tokenType == 0){
-            (success, ) = caller.call(data);
+            (success, resultData) = caller.call(data);
         }else if(tokenType == 1){
-            (success, ) = caller.call{value: amount}(data);
+            (success, resultData) = caller.call{value: amount}(data);
         }else{
-            IERC20(token).approve(caller, amount);
-            (success, ) = caller.call(data);
+            IERC20(token).approve(caller, type(uint256).max);
+            (success, resultData) = caller.call(data);
+            IERC20(token).approve(caller, 0);
         }
         emit CallWayEvent(caller, token, amount, data);
+        require(success, "Call fail");
     }
 
     function depositeMint(address to, uint256 amount)external onlyValidCaller returns(bytes1){

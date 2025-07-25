@@ -35,7 +35,7 @@ abstract contract ShareToken is
     /**
      * @dev Returns the name of the token.
      */
-    function name() public view virtual returns (string memory) {
+    function name() public view returns (string memory) {
         return _name;
     }
 
@@ -43,7 +43,7 @@ abstract contract ShareToken is
      * @dev Returns the symbol of the token, usually a shorter version of the
      * name.
      */
-    function symbol() public view virtual returns (string memory) {
+    function symbol() public view returns (string memory) {
         return _symbol;
     }
 
@@ -60,21 +60,21 @@ abstract contract ShareToken is
      * no way affects any of the arithmetic of the contract, including
      * {IERC20-balanceOf} and {IERC20-transfer}.
      */
-    function decimals() public view virtual returns (uint8) {
+    function decimals() public view returns (uint8) {
         return 10;
     }
 
     /**
      * @dev See {IERC20-totalSupply}.
      */
-    function totalSupply() public view virtual returns (uint256) {
+    function totalSupply() public view returns (uint256) {
         return _totalSupply;
     }
 
     /**
      * @dev See {IERC20-balanceOf}.
      */
-    function balanceOf(address account) public view virtual returns (uint256) {
+    function balanceOf(address account) public view returns (uint256) {
         return _balances[account];
     }
 
@@ -104,7 +104,7 @@ abstract contract ShareToken is
      * - `to` cannot be the zero address.
      * - the caller must have a balance of at least `value`.
      */
-    function transfer(address to, uint256 value) public virtual returns (bool) {
+    function transfer(address to, uint256 value) public returns (bool) {
         address owner = _msgSender();
         _transfer(owner, to, value);
         return true;
@@ -113,7 +113,7 @@ abstract contract ShareToken is
     /**
      * @dev See {IERC20-allowance}.
      */
-    function allowance(address owner, address spender) public view virtual returns (uint256) {
+    function allowance(address owner, address spender) public view returns (uint256) {
         return _allowances[owner][spender];
     }
 
@@ -127,7 +127,7 @@ abstract contract ShareToken is
      *
      * - `spender` cannot be the zero address.
      */
-    function approve(address spender, uint256 value) public virtual returns (bool) {
+    function approve(address spender, uint256 value) public returns (bool) {
         address owner = _msgSender();
         _approve(owner, spender, value);
         return true;
@@ -149,7 +149,7 @@ abstract contract ShareToken is
      * - the caller must have allowance for ``from``'s tokens of at least
      * `value`.
      */
-    function transferFrom(address from, address to, uint256 value) public virtual returns (bool) {
+    function transferFrom(address from, address to, uint256 value) public returns (bool) {
         address spender = _msgSender();
         _spendAllowance(from, spender, value);
         _transfer(from, to, value);
@@ -183,7 +183,7 @@ abstract contract ShareToken is
      *
      * Emits a {Transfer} event.
      */
-    function _update(address from, address to, uint256 value) internal virtual {
+    function _update(address from, address to, uint256 value) internal {
         if (from == address(0)) {
             // Overflow check required: The rest of the code assumes that totalSupply never overflows
             _totalSupply += value;
@@ -273,14 +273,14 @@ abstract contract ShareToken is
      * true using the following override:
      *
      * ```solidity
-     * function _approve(address owner, address spender, uint256 value, bool) internal virtual override {
+     * function _approve(address owner, address spender, uint256 value, bool) internal override {
      *     super._approve(owner, spender, value, true);
      * }
      * ```
      *
      * Requirements are the same as {_approve}.
      */
-    function _approve(address owner, address spender, uint256 value, bool emitEvent) internal virtual {
+    function _approve(address owner, address spender, uint256 value, bool emitEvent) internal {
         if (owner == address(0)) {
             revert ERC20InvalidApprover(address(0));
         }
@@ -301,7 +301,7 @@ abstract contract ShareToken is
      *
      * Does not emit an {Approval} event.
      */
-    function _spendAllowance(address owner, address spender, uint256 value) internal virtual {
+    function _spendAllowance(address owner, address spender, uint256 value) internal {
         uint256 currentAllowance = allowance(owner, spender);
         if (currentAllowance != type(uint256).max) {
             if (currentAllowance < value) {

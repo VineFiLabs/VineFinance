@@ -15,7 +15,6 @@ contract VineHookCenter is IVineHookCenter {
     bytes1 private immutable ZEROBYTES1;
     bytes1 private immutable ONEBYTES1=0x01;
     bytes32 private immutable ZEROBYTES32;
-
     uint64 public curatorId;
     address public owner;
     address public manager;
@@ -85,14 +84,14 @@ contract VineHookCenter is IVineHookCenter {
         emit UpdateCaller(oldCaller, _newCaller);
     }
 
-    function changeCrossCenter(uint8 _index, address _crossCenter) external onlyManager {
-        crossCenterGroup[_index] = _crossCenter;
-        emit UpdateCrossCenter(_index, _crossCenter);
-    }
-
     function setVineConfig(address _vineVaultFactory, address _vineConfig) external onlyOwner {
         vineVaultFactory = _vineVaultFactory;
         vineConfig = _vineConfig;
+    }
+    
+    function changeCrossCenter(uint8 _index, address _crossCenter) external onlyOwner {
+        crossCenterGroup[_index] = _crossCenter;
+        emit UpdateCrossCenter(_index, _crossCenter);
     }
 
     function changeL2Encode(address _l2Encode) external onlyManager {

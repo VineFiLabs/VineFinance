@@ -75,14 +75,16 @@ contract RewardPool is Ownable, IRewardPool {
         _checkValidCaller(id);
         if(idToRewardTokensInfo[id].state){
             uint256 userShareBalance = _tokenBalance(_getMarketInfo(id).vineVault, user);
-            unchecked {
-                for(uint256 i; i<idToRewardTokensInfo[id].tokens.length; i++){
-                    address token = idToRewardTokensInfo[id].tokens[i];
-                    uint256 rewardAmount = _compute(idToRewardTokensInfo[id].amounts[i], userShareBalance, totalShareAmount);
-                    uint256 currentBalance = _tokenBalance(token, address(this));
-                    uint256 earnAmount = rewardAmount > currentBalance ? currentBalance : rewardAmount;
-                    IERC20(token).safeTransfer(user, earnAmount);
-                    emit Reward(user, token, earnAmount);
+            if(userShareBalance > 0 && totalShareAmount > 0){
+                unchecked {
+                    for(uint256 i; i<idToRewardTokensInfo[id].tokens.length; i++){
+                        address token = idToRewardTokensInfo[id].tokens[i];
+                        uint256 rewardAmount = _compute(idToRewardTokensInfo[id].amounts[i], userShareBalance, totalShareAmount);
+                        uint256 currentBalance = _tokenBalance(token, address(this));
+                        uint256 earnAmount = rewardAmount > currentBalance ? currentBalance : rewardAmount;
+                        IERC20(token).safeTransfer(user, earnAmount);
+                        emit Reward(user, token, earnAmount);
+                    }
                 }
             }
         }

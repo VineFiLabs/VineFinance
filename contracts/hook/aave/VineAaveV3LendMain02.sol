@@ -28,15 +28,15 @@ contract VineAaveV3LendMain02 is
 {
     using SafeERC20 for IERC20;
     
-    uint64 public curatorId;
-    address public factory;
-    address public govern;
-    address public owner;
-    address public manager;
-
     bytes1 private immutable ZEROBYTES1;
     bytes1 private immutable ONEBYTES1 = 0x01;
     uint16 private referralCode;
+    uint64 public curatorId;
+    address public immutable factory;
+    address public immutable govern;
+    address public immutable owner;
+    address public manager;
+    uint256 private constant MinLiquidity = 10;
 
     constructor(
         address _govern, 
@@ -53,7 +53,7 @@ contract VineAaveV3LendMain02 is
 
     mapping(address => mapping(uint256 => UserSupplyInfo)) private _UserSupplyInfo;
 
-    mapping(uint256 => strategyInfo) private StrategyInfo; 
+    mapping(uint256 => StrategyInfo) private strategyInfo; 
 
     mapping(address => mapping(uint256 => bool)) private CuratorWithdrawState;
 
@@ -82,7 +82,7 @@ contract VineAaveV3LendMain02 is
     */
     function setLock(uint256 id, bytes1 state) external onlyManager {
         _checkValidId(id);
-        StrategyInfo[id].lockState = state;
+        strategyInfo[id].lockState = state;
     }
 
     /**
@@ -99,7 +99,7 @@ contract VineAaveV3LendMain02 is
         address receiver
     ) external nonReentrant {
         _checkValidId(id);
-        require(StrategyInfo[id].lockState == ZEROBYTES1, "Lock");
+        require(strategyInfo[id].lockState == ZEROBYTES1, "Lock");
         //amount >= 10000
         require(amount >= 10000, "Least 10000");
         uint64 currentTime = uint64(block.timestamp);
@@ -116,7 +116,7 @@ contract VineAaveV3LendMain02 is
             revert SupplyFail(0x17);
         }
 
-        StrategyInfo[id].depositeTotalAmount += amount;
+        strategyInfo[id].depositeTotalAmount += amount;
         _UserSupplyInfo[receiver][id].pledgeAmount += amount; 
         _UserSupplyInfo[receiver][id].supplyTime = currentTime;
         emit UserDeposite(id, receiver, amount);
@@ -131,103 +131,112 @@ contract VineAaveV3LendMain02 is
     */
     function withdraw(uint8 indexConfig, uint256 id) external nonReentrant {
         _checkValidId(id);
-        require(block.timestamp >= _getMarketInfo(id).endTime + 12 hours, "Non withdraw time");
+        _checkValidWithdrawTime(id);
+        uint64 pledgeAmount = _UserSupplyInfo[msg.sender][id].pledgeAmount;
         address usdc = _getVineConfig(indexConfig, id).mainToken;
         address vineVault = _getMarketInfo(id).vineVault;
-        uint256 userShareTokenAmount = _tokenBalance(vineVault, msg.sender);
-        uint256 thisTotalSupply = IERC20(vineVault).totalSupply();
-        require(StrategyInfo[id].finallyAmount > 0, "Zero finallyAmount");
-        uint256 earnAmount = VineLib._getUserFinallyAmount(
-            _getMarketInfo(id).curatorFee, 
-            _getMarketInfo(id).protocolFee, 
-            _UserSupplyInfo[msg.sender][id].pledgeAmount, 
-            StrategyInfo[id].depositeTotalAmount, 
-            userShareTokenAmount, 
-            StrategyInfo[id].finallyAmount, 
-            thisTotalSupply
-        );
-        require(earnAmount >0, "Zero");
-        if(IVineVaultCore(vineVault).callVault(usdc, earnAmount) == false){
-            revert CallVaultFail(0x15);
-        }
-        IERC20(usdc).safeTransfer(msg.sender, earnAmount);
-        _UserSupplyInfo[msg.sender][id].pledgeAmount = 0;
+        uint64 depositeTotalAmount = strategyInfo[id].depositeTotalAmount;
+        uint64 finallyAmount;
 
-        //reward
-        IRewardPool(_getMarketInfo(id).rewardPool).reward(
-            id,
-            msg.sender,
-            thisTotalSupply
-        );
-
-        emit UserWithdraw(id, msg.sender, earnAmount);
-        require(IVineVaultCore(vineVault).withdrawBurn(msg.sender, userShareTokenAmount) == ONEBYTES1, "Burn fail");
-    }
-
-    /**
-    * @notice The curators of this main market extract profitable strategy fees from VineVault
-    * @param indexConfig The configuration index of VineConfig1 is passed 0 by the AaveV3 module
-    * @param id The market ID belonging to this main market
-    */
-    function withdrawFee(uint8 indexConfig, uint256 id) external nonReentrant {
-        _checkValidId(id);
-        uint16 curatorFee = _getMarketInfo(id).curatorFee;
-        uint64 endTime = _getMarketInfo(id).endTime;
-        address feeReceiver = _getMarketInfo(id).feeReceiver;
-        address vineVault = _getMarketInfo(id).vineVault;
-        address usdc = _getVineConfig(indexConfig, id).mainToken;
-        uint256 curatorFeeAmount = VineLib._curatorFeeAmount(
-            curatorFee,
-            StrategyInfo[id].depositeTotalAmount,  
-            StrategyInfo[id].finallyAmount
-        );
-        require(curatorFeeAmount>0, "Zero fee");
-        require(feeReceiver != address(0), "Zero address");
-        require(block.timestamp >= endTime + 12 hours, "Non Withdraw Time");
-        if(CuratorWithdrawState[manager][id] == false){
-            if(IVineVaultCore(vineVault).callVault(usdc, curatorFeeAmount) == false){
-                revert CallVaultFail(0x15);
+        //user
+        {   
+            //aave
+            {   
+                address ausdc = _getVineConfig(indexConfig, id).derivedToken;
+                address usdcPool = _getVineConfig(indexConfig, id).callee;
+                uint256 ausdcBalance = _tokenBalance(ausdc, vineVault);
+                if(ausdcBalance > 0){
+                    bytes memory payload = abi.encodeCall(
+                        IPool(usdcPool).withdraw,
+                        (usdc, ausdcBalance, vineVault)
+                    );
+                    (bool suc,) = IVineVaultCore(vineVault).callWay(
+                        2,
+                        ausdc,
+                        usdcPool,
+                        ausdcBalance,
+                        payload
+                    );
+                    require(suc, "Aave withdraw fail");
+                }
             }
-            IERC20(usdc).safeTransfer(
-                feeReceiver,
-                curatorFeeAmount
-            );
-            CuratorWithdrawState[manager][id] = true;
-        }else {
-            revert AlreadyWithdraw(0x18);
-        }
-    }
 
-    /**
-    * @notice Vinelabs collects fees from profitable strategies that it captures
-    * @param indexConfig The configuration index of VineConfig1 is passed 0 by the AaveV3 module
-    * @param id The market ID belonging to this main market
-    */
-    function officeWithdraw(uint8 indexConfig, uint256 id) external nonReentrant {
-        _checkValidId(id);
-        require(block.timestamp >= _getMarketInfo(id).endTime + 12 hours, "Non Withdraw Time");
-        address vineVault = _getMarketInfo(id).vineVault;
-        address usdc = _getVineConfig(indexConfig, id).mainToken;
-        if(StrategyInfo[id].protocolFeeState == ZEROBYTES1){
+            uint256 userShareTokenAmount = _tokenBalance(vineVault, msg.sender);
+            uint256 shareTotalSupply = IERC20(vineVault).totalSupply();
+
+            //update
+            _updateFinallyAmount(id, usdc, vineVault);
+            finallyAmount = strategyInfo[id].finallyAmount;
+            require(finallyAmount > 0, "Zero finallyAmount");
+
+            uint256 earnAmount = VineLib._getUserFinallyAmount(
+                _getMarketInfo(id).curatorFee, 
+                _getMarketInfo(id).protocolFee, 
+                pledgeAmount, 
+                depositeTotalAmount, 
+                userShareTokenAmount, 
+                finallyAmount, 
+                shareTotalSupply
+            );
+            require(earnAmount > 0, "Zero");
+
+            IVineVaultCore(vineVault).callVault(usdc, earnAmount);
+            if(pledgeAmount > 0){
+                _UserSupplyInfo[msg.sender][id].pledgeAmount = 0;
+            }
+            IERC20(usdc).safeTransfer(msg.sender, earnAmount);
+
+            //reward
+            IRewardPool(_getMarketInfo(id).rewardPool).reward(
+                id,
+                msg.sender,
+                shareTotalSupply
+            );
+            emit UserWithdraw(id, msg.sender, earnAmount);
+            strategyInfo[id].extractedAmount += uint64(earnAmount);
+            require(IVineVaultCore(vineVault).withdrawBurn(msg.sender, userShareTokenAmount) == ONEBYTES1, "Burn fail");
+        }
+
+        
+        {   
             uint256 officialFeeAmount = VineLib._protocolFeeAmount
             (
                 _getMarketInfo(id).protocolFee, 
-                StrategyInfo[id].depositeTotalAmount, 
-                StrategyInfo[id].finallyAmount
+                depositeTotalAmount, 
+                finallyAmount
             );
-            if(IVineVaultCore(vineVault).callVault(usdc, officialFeeAmount) == false){
-                revert CallVaultFail(0x15);
+            uint256 curatorFeeAmount = VineLib._curatorFeeAmount(
+                _getMarketInfo(id).curatorFee,
+                depositeTotalAmount,  
+                finallyAmount
+            );
+            IVineVaultCore(vineVault).callVault(usdc, officialFeeAmount + curatorFeeAmount);
+            //curator
+            if(CuratorWithdrawState[manager][id] == false){
+                address curatorFeeReceiver = _getMarketInfo(id).feeReceiver;
+                if(curatorFeeAmount > 0){
+                    IERC20(usdc).safeTransfer(
+                        curatorFeeReceiver == address(0) ? owner : curatorFeeReceiver,
+                        curatorFeeAmount
+                    );
+                    strategyInfo[id].extractedAmount += uint64(curatorFeeAmount);
+                    CuratorWithdrawState[manager][id] = true;
+                }
             }
-            if(officialFeeAmount > 0){
-                IERC20(usdc).safeTransfer(
-                    _getMarketInfo(id).protocolFeeReceiver,
-                    officialFeeAmount
-                );
-                StrategyInfo[id].protocolFeeState = ONEBYTES1;
+
+            //official
+            if(strategyInfo[id].protocolFeeState == ZEROBYTES1){
+                if(officialFeeAmount > 0){
+                    IERC20(usdc).safeTransfer(
+                        _getMarketInfo(id).protocolFeeReceiver,
+                        officialFeeAmount
+                    );
+                    strategyInfo[id].extractedAmount += uint64(officialFeeAmount);
+                    strategyInfo[id].protocolFeeState = ONEBYTES1;
+                }
             }
-        }else {
-            revert AlreadyWithdraw(0x18);
         }
+
     }
 
     /**
@@ -278,36 +287,30 @@ contract VineAaveV3LendMain02 is
     /**
     * @notice The curator performs CCTP cross-chain operations, 
     * sending the funds of a strategy to the VineVault of the market of the target chain before the strategy ends
-    * @param id The market ID belonging to this main market
-    * @param indexConfig The configuration index of VineConfig1 is passed 0 by the AaveV3 module
-    * @param destinationDomain CCTP domain of the target chain
-    * @param inputBlock The block number that accompanies the transaction initiation
-    * @param amount Cross-chain quantity
     */
     function crossUSDC(
-        uint256 id,
-        uint8 indexConfig,
-        uint32 destinationDomain,
-        uint64 inputBlock,
-        uint256 amount
-    ) external onlyManager {
-        _checkValidId(id);
-        _checkValidEndTime(id);
-        address usdc = _getVineConfig(indexConfig, id).mainToken;
-        bytes32 destVault = _getValidVault(id, destinationDomain);
-        address crossCenter = _getMarketInfo(id).crossCenter;
-        address currentVault = _getMarketInfo(id).vineVault;
-        require(_bytes32ToAddress(destVault) != currentVault, "Invalid destinationDomain");
-        if(IVineVaultCore(currentVault).callVault(usdc, amount) == false){
-            revert CallVaultFail(0x15);
+        CrossUSDCParams calldata params
+    ) external {
+        _checkValidId(params.id);
+        _checkOperator(params.id);
+        address usdc = _getVineConfig(params.indexConfig, params.id).mainToken;
+        bytes32 bytes32DestVault = _getValidVault(params.id, params.destinationDomain);
+        address destVault = _bytes32ToAddress(bytes32DestVault);
+        address crossCenter = _getMarketInfo(params.id).crossCenter;
+        address currentVault = _getMarketInfo(params.id).vineVault;
+        require(destVault != currentVault && destVault != address(0), "Invalid destinationDomain");
+        IVineVaultCore(currentVault).callVault(usdc, params.amount);
+        if(params.sameChain){
+            IERC20(usdc).safeTransfer(destVault, params.amount);
+        }else {
+            IERC20(usdc).approve(crossCenter, params.amount);
+            ICoreCrossCenter(crossCenter).crossUSDC(
+                params.destinationDomain,
+                params.inputBlock,
+                bytes32DestVault,
+                params.amount
+            );
         }
-        IERC20(usdc).approve(crossCenter, amount);
-        ICoreCrossCenter(crossCenter).crossUSDC(
-            destinationDomain,
-            inputBlock,
-            destVault,
-            amount
-        );
     }
 
     /**
@@ -370,11 +373,12 @@ contract VineAaveV3LendMain02 is
         address vineVault
     ) private returns(bytes1) {
         uint64 endTime = _getMarketInfo(id).endTime;
-        uint256 beforeFinallyAmount = StrategyInfo[id].finallyAmount;
-        uint64 usdcBalance = uint64(_tokenBalance(usdc, vineVault));
+        uint64 beforeFinallyAmount = strategyInfo[id].finallyAmount;
+        uint64 currentBalance = uint64(_tokenBalance(usdc, vineVault));
+        uint64 currentFinallyAmount =  currentBalance + strategyInfo[id].extractedAmount;
         if(block.timestamp >= endTime){
-            if(usdcBalance > beforeFinallyAmount){
-                 StrategyInfo[id].finallyAmount = usdcBalance;
+            if(currentFinallyAmount > beforeFinallyAmount){
+                 strategyInfo[id].finallyAmount = currentFinallyAmount;
             }
         }
         return ONEBYTES1;
@@ -390,7 +394,7 @@ contract VineAaveV3LendMain02 is
             IPool(usdcPool).supply,
             (usdc, amount, vineVault, referralCode)
         );
-        state = IVineVaultCore(vineVault).callWay(
+        (state, ) = IVineVaultCore(vineVault).callWay(
             2,
             usdc,
             usdcPool,
@@ -410,7 +414,7 @@ contract VineAaveV3LendMain02 is
             IPool(usdcPool).withdraw,
             (usdc, amount, vineVault)
         );
-        state = IVineVaultCore(vineVault).callWay(
+        (state, ) = IVineVaultCore(vineVault).callWay(
             2,
             ausdc,
             usdcPool,
@@ -438,6 +442,10 @@ contract VineAaveV3LendMain02 is
     function _checkOperator(uint256 id) private view {
         require(msg.sender == manager || (block.timestamp > _getMarketInfo(id).endTime + 12 hours), "Non manager or not emergency time");
     } 
+
+    function _checkValidWithdrawTime(uint256 id) private view {
+        require(block.timestamp >= _getMarketInfo(id).endTime + 12 hours, "Non Withdraw Time");
+    }
 
     function _tokenBalance(
         address token,
@@ -492,10 +500,10 @@ contract VineAaveV3LendMain02 is
     /**
     * @notice Get some strategic information for this main market
     * @param id The market ID belonging to this main market
-    * @return Return the strategyInfo struct
+    * @return Return The StrategyInfo struct
     */
-    function getStrategyInfo(uint256 id) external view returns(strategyInfo memory) {
-        return StrategyInfo[id];
+    function getStrategyInfo(uint256 id) external view returns(StrategyInfo memory) {
+        return strategyInfo[id];
     }
     
     /**

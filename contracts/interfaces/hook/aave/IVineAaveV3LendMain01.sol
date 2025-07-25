@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
 import {IVineStruct} from "../../IVineStruct.sol";
@@ -52,7 +52,7 @@ interface IVineAaveV3LendMain01 is ISharer, IVineStruct{
 
     function getUserSupply(address user, uint256 id)external view returns(UserSupplyInfo memory);
 
-    function getStrategyInfo(uint256 id)external view returns(strategyInfo memory);
+    function getStrategyInfo(uint256 id)external view returns(StrategyInfo memory);
 
     function getCuratorWithdrawState(address user, uint256 id) external view returns(bool);
 }

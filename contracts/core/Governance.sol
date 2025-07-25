@@ -305,6 +305,7 @@ contract Governance is IGovernance {
     function initialize(uint256 id, address coreLendMarket) external {
         require(msg.sender == IdToMarketInfo[id].curator || msg.sender ==  manager, "Not operator");
         require(InitializeState[id] == ZEROBYTES1, "Already initialize");
+        require(coreLendMarket != address(0), "Zero");
         IdToMarketInfo[id].coreLendMarket = coreLendMarket;
         InitializeState[id] = ONEBYTES1;
         emit Initialize(msg.sender, coreLendMarket);
@@ -348,18 +349,20 @@ contract Governance is IGovernance {
     * @param gasLimit The gaslimit required for execution of the target chain
     * Note Set the gasLimit as large as possible, 500000 is recommended
     * @param targetAddress The Hook address of the policy of the target chain
-    * @param id The market ID belonging to this main market
+    * @param mainMarketId The market ID belonging to this main market
+    * @param targetId Target chain hook id
     */
     function sendMessage(
         uint16 targetChain,
         uint32 gasLimit,
         address targetAddress,
-        uint256 id
+        uint256 mainMarketId,
+        uint256 targetId
     ) external payable {
-        require(block.timestamp > IdToMarketInfo[id].endTime + 12 hours, "Not emergency time");
+        require(block.timestamp > IdToMarketInfo[mainMarketId].endTime + 12 hours, "Not emergency time");
         uint256 cost = quoteCrossChainCost(targetChain, gasLimit);
-        uint256 emergencyTime = uint256(IdToMarketInfo[id].endTime) + 12 hours;
-        bytes memory payload = abi.encode(id, emergencyTime);
+        uint256 emergencyTime = uint256(IdToMarketInfo[mainMarketId].endTime) + 12 hours;
+        bytes memory payload = abi.encode(targetId, emergencyTime);
         require(msg.value >= cost,"Insufficient eth");
 
         wormholeRelayer.sendPayloadToEvm{value: cost}(
